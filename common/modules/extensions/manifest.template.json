@@ -1,0 +1,16 @@
+{
+  "id": "extension-id",
+  "name": "Extension Display Name",
+  "version": "1.0.0",
+  "description": "What this extension does",
+  "mediaTypes": ["anime"],
+  "supportedIds": ["anilist", "anidb", "mal"],
+  "nsfw": false,
+  "speed": "moderate",
+  "accuracy": "medium",
+  "features": {
+    "supportsQualityFilter": false,
+    "supportsExclusions": false,
+    "supportsSeasonSpecific": false
+  }
+}

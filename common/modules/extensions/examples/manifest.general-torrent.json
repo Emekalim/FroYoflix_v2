@@ -1,0 +1,16 @@
+{
+  "id": "1337x",
+  "name": "1337x",
+  "version": "2.0.0",
+  "description": "General torrent provider supporting anime, TV shows, and movies",
+  "mediaTypes": ["anime", "tv", "movie"],
+  "supportedIds": ["anilist", "imdb", "tmdb", "tvdb"],
+  "nsfw": false,
+  "speed": "moderate",
+  "accuracy": "medium",
+  "features": {
+    "supportsQualityFilter": true,
+    "supportsExclusions": true,
+    "supportsSeasonSpecific": true
+  }
+}

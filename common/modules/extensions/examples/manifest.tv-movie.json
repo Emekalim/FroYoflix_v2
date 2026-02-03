@@ -1,0 +1,16 @@
+{
+  "id": "rarbg",
+  "name": "RARBG",
+  "version": "1.0.0",
+  "description": "TV and movie torrent provider - RARBG",
+  "mediaTypes": ["tv", "movie"],
+  "supportedIds": ["imdb", "tmdb"],
+  "nsfw": false,
+  "speed": "slow",
+  "accuracy": "high",
+  "features": {
+    "supportsQualityFilter": true,
+    "supportsExclusions": true,
+    "supportsSeasonSpecific": true
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "hayasexshiru-extensions",
+  "version": "1.0.1",
+  "description": "Community-maintained extensions for Shiru and Hayase. Nyaa and Sukebei included.",
+  "main": "shiru/index.json",
+  "scripts": {
+    "generate": "node generate_indexes.js"
+  },
+  "author": "ReWelp",
+  "license": "GPL-3.0",
+  "type": "module"
+}

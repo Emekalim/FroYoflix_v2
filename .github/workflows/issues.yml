@@ -1,0 +1,156 @@
+name: Auto Label Issues
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  label-issue:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Label Bug Severity
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body || '';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
+            const labels = context.payload.issue.labels.map(label => label.name);
+            
+            // Only process if this is a bug report
+            if (!labels.includes('bug')) {
+              console.log('Not a bug report, skipping severity labeling');
+              return;
+            }
+            
+            // Define severity labels
+            const severityLabels = [
+              'severity: critical',
+              'severity: high',
+              'severity: medium',
+              'severity: low'
+            ];
+            
+            // Find current severity label
+            const currentSeverityLabel = labels.find(label => severityLabels.includes(label));
+            
+            // Extract the Bug Severity section
+            const severityMatch = body.match(/### Bug Severity\s*\n\s*(Critical|High|Medium|Low)/i);
+            
+            // Determine new severity label
+            let newLabel = null;
+            if (severityMatch) {
+              const severity = severityMatch[1].toLowerCase();
+              newLabel = `severity: ${severity}`;
+              console.log(`Found severity: ${severity}`);
+            } else {
+              console.log('Could not find Bug Severity section or value');
+            }
+            
+            // Stop if label hasn't changed
+            if (currentSeverityLabel === newLabel) {
+              console.log(`Severity label unchanged: ${newLabel}`);
+              return;
+            }
+            
+            // Remove old severity label if it exists
+            if (currentSeverityLabel) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner,
+                  repo,
+                  issue_number,
+                  name: currentSeverityLabel
+                });
+                console.log(`Removed old label: ${currentSeverityLabel}`);
+              } catch (error) {
+                console.log(`Could not remove label ${currentSeverityLabel}: ${error.message}`);
+              }
+            }
+            
+            // Add new severity label
+            if (newLabel && severityLabels.includes(newLabel)) {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number,
+                labels: [newLabel]
+              });
+              console.log(`Added label: ${newLabel}`);
+            }
+
+      - name: Label Feature Priority
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body || '';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
+            const labels = context.payload.issue.labels.map(label => label.name);
+            
+            // Only process if this is a feature request
+            if (!labels.includes('enhancement')) {
+              console.log('Not a feature request, skipping priority labeling');
+              return;
+            }
+            
+            // Define priority labels
+            const priorityLabels = [
+              'priority: critical',
+              'priority: high',
+              'priority: medium',
+              'priority: low'
+            ];
+            
+            // Find current priority label
+            const currentPriorityLabel = labels.find(label => priorityLabels.includes(label));
+            
+            // Extract the Feature Priority section
+            const priorityMatch = body.match(/### How Important Is This Feature To You\?\s*\n\s*(Critical|High|Medium|Low)/i);
+            
+            // Determine new priority label
+            let newLabel = null;
+            if (priorityMatch) {
+              const priority = priorityMatch[1].toLowerCase();
+              newLabel = `priority: ${priority}`;
+              console.log(`Found priority: ${priority}`);
+            } else {
+              console.log('Could not find Feature Priority section or value');
+            }
+            
+            // Stop if label hasn't changed
+            if (currentPriorityLabel === newLabel) {
+              console.log(`Priority label unchanged: ${newLabel}`);
+              return;
+            }
+            
+            // Remove old priority label if it exists
+            if (currentPriorityLabel) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner,
+                  repo,
+                  issue_number,
+                  name: currentPriorityLabel
+                });
+                console.log(`Removed old label: ${currentPriorityLabel}`);
+              } catch (error) {
+                console.log(`Could not remove label ${currentPriorityLabel}: ${error.message}`);
+              }
+            }
+            
+            // Add new priority label
+            if (newLabel && priorityLabels.includes(newLabel)) {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number,
+                labels: [newLabel]
+              });
+              console.log(`Added label: ${newLabel}`);
+            }

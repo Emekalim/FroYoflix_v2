@@ -1,0 +1,16 @@
+{
+  "id": "nyaa-si",
+  "name": "Nyaa.si",
+  "version": "1.0.0",
+  "description": "Anime torrent tracker - searches Nyaa.si for anime releases",
+  "mediaTypes": ["anime"],
+  "supportedIds": ["anilist", "anidb", "mal"],
+  "nsfw": false,
+  "speed": "fast",
+  "accuracy": "high",
+  "features": {
+    "supportsQualityFilter": true,
+    "supportsExclusions": true,
+    "supportsSeasonSpecific": false
+  }
+}

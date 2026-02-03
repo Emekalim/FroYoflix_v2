@@ -1,0 +1,16 @@
+{
+  "id": "sukebei",
+  "name": "Sukebei Nyaa",
+  "version": "1.0.0",
+  "description": "NSFW anime torrent tracker - searches Sukebei for adult anime releases",
+  "mediaTypes": ["anime"],
+  "supportedIds": ["anilist", "anidb", "mal"],
+  "nsfw": true,
+  "speed": "fast",
+  "accuracy": "high",
+  "features": {
+    "supportsQualityFilter": true,
+    "supportsExclusions": true,
+    "supportsSeasonSpecific": false
+  }
+}

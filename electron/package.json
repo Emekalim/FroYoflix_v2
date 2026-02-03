@@ -1,0 +1,140 @@
+{
+  "name": "shiru",
+  "version": "6.5.0",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "author": "RockinChaos <RockinChaos@users.noreply.github.com>",
+  "description": "Manage your personal media library, organize your collection, and stream your content in real time, no waiting required!",
+  "main": "build/main.js",
+  "homepage": "https://github.com/RockinChaos/Shiru#readme",
+  "scripts": {
+    "start": "cross-env NODE_ENV=development webpack build && concurrently --kill-others \"npm run web:watch\" \"npm run electron:start\"",
+    "web:watch": "webpack serve",
+    "web:build": "cross-env NODE_ENV=production webpack build",
+    "electron:start": "electron ./build/main.js",
+    "build": "npm run web:build && electron-builder",
+    "electron:build": "electron-builder",
+    "publish": "npm run web:build && electron-builder -p always"
+  },
+  "devDependencies": {
+    "@electron/notarize": "^3.1.0",
+    "common": "workspace:*",
+    "client": "workspace:*",
+    "electron": "39.2.7",
+    "electron-builder": "^26.0.12",
+    "electron-log": "^5.4.3",
+    "electron-updater": "^6.8.2"
+  },
+  "dependencies": {
+    "@paymoapp/electron-shutdown-handler": "^1.1.2",
+    "@xhayper/discord-rpc": "^1.3.0",
+    "concurrently": "^9.2.1",
+    "jimp": "0.22.12",
+    "powertoast": "^3.0.0",
+    "utp-native": "^2.5.3"
+  },
+  "standard": {
+    "ignore": [
+      "bundle.js",
+      "bundle.map.js"
+    ],
+    "env": [
+      "browser",
+      "node"
+    ]
+  },
+  "build": {
+    "directories": {
+      "buildResources": "buildResources"
+    },
+    "asarUnpack": "**/*.node",
+    "electronDownload": {
+      "mirror": "https://craftationgaming.com/api/packages/electron/",
+      "customDir": "39.2.7"
+    },
+    "protocols": {
+      "name": "shiru",
+      "schemes": [
+        "shiru",
+        "magnet"
+      ]
+    },
+    "fileAssociations": [
+      {
+        "ext": "torrent",
+        "name": "Torrent File",
+        "description": "Play and manage your personal torrent media",
+        "role": "Viewer"
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "RockinChaos",
+        "repo": "shiru"
+      }
+    ],
+    "appId": "com.github.rockinchaos.shiru",
+    "productName": "Shiru",
+    "files": [
+      "build/**/*",
+      "!node_modules/**/*.{mk,a,o,h}"
+    ],
+    "mac": {
+      "artifactName": "${os}-${productName}-v${version}.${ext}",
+      "singleArchFiles": "node_modules/+(register-scheme|utp-native|fs-native-extensions)/**",
+      "category": "public.app-category.video",
+      "darkModeSupport": true,
+      "icon": "buildResources/icon.icns",
+      "hardenedRuntime": true,
+      "notarize": false,
+      "entitlements": "buildResources/entitlements.mac.plist",
+      "target": [
+        {
+          "arch": "universal",
+          "target": "default"
+        }
+      ]
+    },
+    "win": {
+      "artifactName": "${os}-${productName}-v${version}.${ext}",
+      "icon": "buildResources/icon.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "linux": {
+      "artifactName": "${os}-${productName}-v${version}.${ext}",
+      "icon": "buildResources/icon.png",
+      "category": "AudioVideo;Video",
+      "description": "Manage your personal media library, organize your collection, and stream your content in real time, no waiting required!",
+      "maintainer": "RockinChaos <RockinChaos@users.noreply.github.com>",
+      "desktop": {
+        "entry": {
+          "Comment": "Manage your personal media library, organize your collection, and stream your content in real time, no waiting required!",
+          "Keywords": "anime",
+          "MimeType": "x-scheme-handler/shiru;"
+        }
+      },
+      "target": [
+        {
+          "arch": "x64",
+          "target": "AppImage"
+        },
+        {
+          "arch": "x64",
+          "target": "deb"
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "${os}-${productName}-v${version}-portable.${ext}"
+    },
+    "nsis": {
+      "allowToChangeInstallationDirectory": true,
+      "oneClick": false,
+      "artifactName": "${os}-${productName}-v${version}-installer.${ext}"
+    }
+  }
+}
