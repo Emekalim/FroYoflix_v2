@@ -33,13 +33,13 @@ video.remove()
  */
 function determineMediaType(media) {
   if (!media) return 'anime' // default to anime
-  
+
   // If from TMDB source, check format field
   if (media.source === 'TMDB') {
     if (media.format === 'TV') return 'tv'
     if (media.format === 'MOVIE') return 'movie'
   }
-  
+
   // If from AniList source, check format field
   if (media.source === 'ANILIST' || !media.source) {
     // Anime formats
@@ -47,7 +47,7 @@ function determineMediaType(media) {
     if (media.format === 'TV') return 'tv'
     if (media.format === 'MOVIE') return 'movie'
   }
-  
+
   // Fallback: default to anime for unknown sources
   return 'anime'
 }
@@ -57,10 +57,10 @@ function determineMediaType(media) {
  * @returns {Promise<Map<string, { name: string, icon?: string, promise: Promise<any> }>>}
  * Returns a Map of extension results keyed by extension id, each containing metadata and a result promise.
  */
-export async function getResultsFromExtensions({ media, episode, batch, movie, resolution }) {
+export async function getResultsFromExtensions({ media, episode, season, batch, movie, resolution }) {
   await extensionManager.whenReady.promise
   debug(`Fetching sources for ${media?.id}:${media?.title?.userPreferred} ${episode} ${batch} ${movie} ${resolution}`)
-  
+
   // Determine media type and fetch AniDB mapping if anime
   const mediaType = determineMediaType(media)
   const aniDBMeta = mediaType === 'anime' ? await ALToAniDB(media) : null
@@ -84,8 +84,8 @@ export async function getResultsFromExtensions({ media, episode, batch, movie, r
     mediaType,
     ids,
     year: media.startDate?.year,
-    season: media.season,
-    
+    season: season || media.season,
+
     // EXISTING FIELDS - Kept for compatibility
     anilistId: media.id,
     episodeCount: getMediaMaxEp(media),
@@ -148,7 +148,7 @@ export async function getResultsFromExtensions({ media, episode, batch, movie, r
 }
 
 const peerCache = new Map()
-export async function updatePeerCounts (entries) {
+export async function updatePeerCounts(entries) {
   const cacheKey = entries.map(({ hash }) => hash).sort().join(',')
   const cached = peerCache.get(cacheKey)
   if (cached && (((Date.now() - cached.timestamp) <= 90000) || status.value === 'offline')) {
@@ -160,7 +160,7 @@ export async function updatePeerCounts (entries) {
   debug(`Updating peer counts for ${entries?.length} entries`)
   const updated = await Promise.race([
     new Promise(resolve => {
-      function check (detail) {
+      function check(detail) {
         if (detail.id !== id) return
         debug('Got scrape response')
         WPC.clear('scrape_done', check)
@@ -186,7 +186,7 @@ export async function updatePeerCounts (entries) {
 }
 
 /** @param {import('@/modules/al.js').Media} media */
-async function ALToAniDB (media) {
+async function ALToAniDB(media) {
   const json = await getAniMappings(media?.id) || {}
   if (json.mappings?.anidb_id) return json
 
@@ -197,14 +197,14 @@ async function ALToAniDB (media) {
 }
 
 /** @param {import('@/modules/al.js').Media} media */
-function getParentForSpecial (media) {
+function getParentForSpecial(media) {
   if (!['SPECIAL', 'OVA', 'ONA'].some(format => media.format === format)) return false
   const animeRelations = media.relations.edges.filter(({ node }) => node.type === 'ANIME')
 
   return getRelation(animeRelations, 'PARENT') || getRelation(animeRelations, 'PREQUEL') || getRelation(animeRelations, 'SEQUEL')
 }
 
-function getRelation (list, type) {
+function getRelation(list, type) {
   return list.find(({ relationType }) => relationType === type)?.node.id
 }
 
@@ -213,7 +213,7 @@ function getRelation (list, type) {
  * @param {{media: import('@/modules/al.js').Media, episode: number}} param0
  * @param {{episodes: any, episodeCount: number, specialCount: number}} param1
  **/
-async function ALtoAniDBEpisode ({ media, episode }, { episodes, episodeCount, specialCount }) {
+async function ALtoAniDBEpisode({ media, episode }, { episodes, episodeCount, specialCount }) {
   debug(`Fetching AniDB episode for ${episode}:${media?.id}:${media?.title?.userPreferred}`)
   if (!isValidNumber(episode) || !Object.values(episodes).length) return
   // if media has no specials or their episode counts don't match
@@ -276,7 +276,7 @@ async function ALtoAniDBEpisode ({ media, episode }, { episodes, episodeCount, s
  * @param {any} episodes
  * @param {number} episode
  **/
-export function episodeByAirDate (alDate, episodes, episode) {
+export function episodeByAirDate(alDate, episodes, episode) {
   // TODO handle special cases where anilist reports that 3 episodes aired at the same time because of pre-releases
   if (!+alDate) return episodes[Number(episode)] || episodes[1] // what the fuck, are you braindead anilist?, the source episode number to play is from an array created from AL ep count, so how come it's missing?
   // 1 is key for episode 1, not index
@@ -301,7 +301,7 @@ export function episodeByAirDate (alDate, episodes, episode) {
 }
 
 /** @param {import('@/modules/al.js').Media} media */
-function createTitles (media) {
+function createTitles(media) {
   // group and de-duplicate
   const grouped = [...new Set(Object.values(media.title).concat(media.synonyms).filter(name => name != null && name.length > 3))]
   const titles = []
@@ -330,7 +330,7 @@ function createTitles (media) {
 }
 
 /** @param {Result[]} entries */
-export function dedupe (entries) {
+export function dedupe(entries) {
   /** @type {Record<string, Result>} */
   const deduped = {}
   for (const entry of entries) {

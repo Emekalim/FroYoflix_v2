@@ -6,7 +6,7 @@ import { toast } from 'svelte-sonner'
 import SectionsManager, { search, key } from '@/modules/sections.js'
 import { page } from '@/modules/navigation.js'
 import clipboard from '@/modules/clipboard.js'
-import { playAnime } from '@/modals/torrent/TorrentModal.svelte'
+import { openTorrentModal } from '@/modals/torrent/TorrentModal.svelte'
 import { animeSchedule } from '@/modules/anime/animeschedule.js'
 import AnimeResolver from '@/modules/anime/animeresolver.js'
 import { episodesList } from '@/modules/episodes.js'
@@ -53,7 +53,7 @@ clipboard.on('text', ({ detail }) => {
   }
 })
 
-export async function traceAnime (image) { // WAIT lookup logic
+export async function traceAnime(image) { // WAIT lookup logic
   let options
   let url = `https://api.trace.moe/search?cutBorders&url=${image}`
   if (image instanceof Blob) {
@@ -102,7 +102,7 @@ export async function traceAnime (image) { // WAIT lookup logic
   }
 }
 
-function constructChapters (results, duration) {
+function constructChapters(results, duration) {
   const chapters = results.map(result => {
     const diff = duration - result.episodeLength
     return {
@@ -148,7 +148,7 @@ function constructChapters (results, duration) {
   return chapters
 }
 
-export async function getChaptersAniSkip (file, duration) {
+export async function getChaptersAniSkip(file, duration) {
   const resAccurate = await fetch(`https://api.aniskip.com/v2/skip-times/${file.media.media.idMal}/${file.media.episode}/?episodeLength=${duration}&types=op&types=ed&types=recap`)
   const jsonAccurate = await resAccurate.json()
 
@@ -166,14 +166,14 @@ export async function getChaptersAniSkip (file, duration) {
   return constructChapters(results, duration)
 }
 
-export function getMediaMaxEp (media, playable) {
+export function getMediaMaxEp(media, playable) {
   if (!media) return 0
   else if (playable) return media.nextAiringEpisode?.episode - 1 || lastAired(media.airingSchedule?.nodes)?.episode || (media.status === 'NOT_YET_RELEASED' ? 0 : media.episodes) || (media.status === 'RELEASING' ? (media.mediaListEntry?.progress ?? 1) : 0)
-  else return Math.max(media.airingSchedule?.nodes?.[media.airingSchedule?.nodes?.length - 1]?.episode || 0, media.airingSchedule?.nodes?.length || 0, (!media.streamingEpisodes || (media.status === 'FINISHED' && media.episodes) ? 0 : media.streamingEpisodes?.filter((ep) => { const match = (/Episode (\d+(\.\d+)?) - /).exec(ep.title); return match ? Number.isInteger(parseFloat(match[1])) : false}).length), media.episodes || 0, media.nextAiringEpisode?.episode || 0) || (media.status === 'RELEASING' ? (media.mediaListEntry?.progress ?? 1) : 0)
+  else return Math.max(media.airingSchedule?.nodes?.[media.airingSchedule?.nodes?.length - 1]?.episode || 0, media.airingSchedule?.nodes?.length || 0, (!media.streamingEpisodes || (media.status === 'FINISHED' && media.episodes) ? 0 : media.streamingEpisodes?.filter((ep) => { const match = (/Episode (\d+(\.\d+)?) - /).exec(ep.title); return match ? Number.isInteger(parseFloat(match[1])) : false }).length), media.episodes || 0, media.nextAiringEpisode?.episode || 0) || (media.status === 'RELEASING' ? (media.mediaListEntry?.progress ?? 1) : 0)
 }
 
 // utility method for correcting anitomyscript woes for what's needed
-export async function anitomyscript (...args) {
+export async function anitomyscript(...args) {
   // @ts-ignore
   const res = await _anitomyscript(...args)
   const parseObjs = Array.isArray(res) ? res : [res]
@@ -232,20 +232,20 @@ function addAnimeType(obj, newType) {
 export async function hasZeroEpisode(media, existingMappings) { // really wish they could make fetching zero episodes less painful.
   if (!media) return null
   const mappings = existingMappings || (await getAniMappings(media.id)) || {}
-  const hasZeroEpisode = media.streamingEpisodes?.filter((ep) => { const match = (/Episode (\d+(\.\d+)?) - /).exec(ep.title); return match ? Number.isInteger(parseFloat(match[1])) && Number(parseFloat(match[1])) === 0 : false})
+  const hasZeroEpisode = media.streamingEpisodes?.filter((ep) => { const match = (/Episode (\d+(\.\d+)?) - /).exec(ep.title); return match ? Number.isInteger(parseFloat(match[1])) && Number(parseFloat(match[1])) === 0 : false })
   const zeroAsFirstEpisode = /episode\s*0/i.test(mappings?.episodes?.[1]?.title?.en || mappings?.episodes?.[1]?.title?.jp) // The first episode is titled as Episode 0 so this is likely a Prologue, fixes issues with series like `Fate/stay night: Unlimited Blade Works`
   // no clue what fixed Mushoku but this initial part seems to allow 'Episode 0 : Guardian Fits' to properly be mapped to season 2 part 1, ensure when making changes this doesn't appear on season 1 part 1.
   if (hasZeroEpisode?.length > 0 && ((media.episodes >= media.streamingEpisodes?.length) || zeroAsFirstEpisode)) {
     const title = hasZeroEpisode[0]?.title?.replace('Episode 0 - ', '')
     const prequel = title?.length > 4 && await AnimeResolver.getAnimeById(AnimeResolver.findEdge(media, 'PREQUEL', ['SPECIAL'])?.node?.id)
     if (!prequel || !Object.values(prequel.title).filter(Boolean).some(_title => _title.toLowerCase().includes(title.toLowerCase()))) {
-      return [{...hasZeroEpisode[0], title}]
+      return [{ ...hasZeroEpisode[0], title }]
     }
   }
   if (!(media.episodes && media.episodes === mappings?.episodeCount && media.status === 'FINISHED')) {
     const special = (mappings?.episodes?.S0 || mappings?.episodes?.s0 || mappings?.episodes?.S1 || mappings?.episodes?.s1)
     if (mappings?.specialCount > 0 && special?.airedBeforeEpisodeNumber > 0) { // very likely it's a zero episode, streamingEpisodes were likely just empty...
-      return [{title: special.title?.en, thumbnail: special.image, length: special.length, summary: special.summary, airingAt: special.airDateUtc}]
+      return [{ title: special.title?.en, thumbnail: special.image, length: special.length, summary: special.summary, airingAt: special.airDateUtc }]
     }
   }
   return null
@@ -697,66 +697,66 @@ export const tagList = [
   'Zombie',
   'Vertical Video',
   ...(settings.value.adult === 'hentai' ? [
-  'Ahegao',
-  'Anal Sex',
-  'Armpits',
-  'Ashikoki',
-  'Asphyxiation',
-  'Bondage',
-  'Boobjob',
-  'Cervix Penetration',
-  'Cheating',
-  'Cumflation',
-  'Cunnilingus',
-  'Deepthroat',
-  'Defloration',
-  'DILF',
-  'Double Penetration',
-  'Erotic Piercings',
-  'Facial',
-  'Feet',
-  'Fellatio',
-  'Femdom',
-  'Fisting',
-  'Flat Chest',
-  'Futanari',
-  'Group Sex',
-  'Hair Pulling',
-  'Handjob',
-  'Hypersexuality',
-  'Inseki',
-  'Irrumatio',
-  'Lactation',
-  'Large Breasts',
-  'Male Pregnancy',
-  'Masochism',
-  'Masturbation',
-  'Mating Press',
-  'MILF',
-  'Nakadashi',
-  'Netorare',
-  'Netorase',
-  'Netori',
-  'Pet Play',
-  'Prostitution',
-  'Public Sex',
-  'Rimjob',
-  'Scat',
-  'Scissoring',
-  'Sex Toys',
-  'Shimaidon',
-  'Squirting',
-  'Sumata',
-  'Tentacles',
-  'Threesome',
-  'Virginity',
-  'Vore',
-  'Voyeur',
-  'Zoophilia'
+    'Ahegao',
+    'Anal Sex',
+    'Armpits',
+    'Ashikoki',
+    'Asphyxiation',
+    'Bondage',
+    'Boobjob',
+    'Cervix Penetration',
+    'Cheating',
+    'Cumflation',
+    'Cunnilingus',
+    'Deepthroat',
+    'Defloration',
+    'DILF',
+    'Double Penetration',
+    'Erotic Piercings',
+    'Facial',
+    'Feet',
+    'Fellatio',
+    'Femdom',
+    'Fisting',
+    'Flat Chest',
+    'Futanari',
+    'Group Sex',
+    'Hair Pulling',
+    'Handjob',
+    'Hypersexuality',
+    'Inseki',
+    'Irrumatio',
+    'Lactation',
+    'Large Breasts',
+    'Male Pregnancy',
+    'Masochism',
+    'Masturbation',
+    'Mating Press',
+    'MILF',
+    'Nakadashi',
+    'Netorare',
+    'Netorase',
+    'Netori',
+    'Pet Play',
+    'Prostitution',
+    'Public Sex',
+    'Rimjob',
+    'Scat',
+    'Scissoring',
+    'Sex Toys',
+    'Shimaidon',
+    'Squirting',
+    'Sumata',
+    'Tentacles',
+    'Threesome',
+    'Virginity',
+    'Vore',
+    'Voyeur',
+    'Zoophilia'
   ] : [])
 ]
 
-export async function playMedia (media) {
+export async function playMedia(media) {
   const zeroEpisode = await hasZeroEpisode(media)
   let ep = zeroEpisode ? 0 : 1
   if (media.mediaListEntry) {
@@ -769,11 +769,11 @@ export async function playMedia (media) {
       }
     }
   }
-  playAnime(media, ep)
+  openTorrentModal(media, ep)
   media = null
 }
 
-export function setStatus (status, other = {}, media) {
+export function setStatus(status, other = {}, media) {
   const fuzzyDate = Helper.getFuzzyDate(media, status)
   const variables = {
     id: media.id,
@@ -789,9 +789,9 @@ export function setStatus (status, other = {}, media) {
 
 // TODO: If data exists from ani.zip but we are lacking some important info, pull from kitsu and merge.
 const episodeMetadataMap = new Map()
-export async function getEpisodeMetadataForMedia (media) {
+export async function getEpisodeMetadataForMedia(media) {
   if (episodeMetadataMap.has(`${media?.id}`)) return episodeMetadataMap.get(`${media?.id}`)
-  
+
   // Handle TMDB sources
   if (media?.source === 'TMDB') {
     const promiseData = (async () => {
@@ -801,7 +801,7 @@ export async function getEpisodeMetadataForMedia (media) {
     episodeMetadataMap.set(`${media?.id}`, promiseData)
     return promiseData
   }
-  
+
   // Handle AniList sources
   const promiseData = (async () => {
     const aniMappings = (await getAniMappings(media?.id) || {})?.episodes
@@ -883,10 +883,10 @@ export function nextAiring(nodes, variables) {
 export function lastAired(nodes, variables) {
   const currentTime = new Date()
   return nodes?.filter(node => new Date(variables?.hideSubs ? node.airingAt : (node.airingAt * 1000)) < currentTime)?.sort((a, b) => {
-      const timeDiff = b.airingAt - a.airingAt
-      if (timeDiff !== 0) return timeDiff
-      return (b.episode || 0) - (a.episode || 0)
-    })?.shift()
+    const timeDiff = b.airingAt - a.airingAt
+    if (timeDiff !== 0) return timeDiff
+    return (b.episode || 0) - (a.episode || 0)
+  })?.shift()
 }
 
 export async function isSubbedProgress(media) {

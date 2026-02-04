@@ -85,13 +85,12 @@ class Worker {
     console.log(`[worker] _querySource called for source ${this.id}`)
     console.log(`[worker] options.titles:`, options.titles)
     console.log(`[worker] options.mediaType:`, options.mediaType)
-    console.log(`[worker] movie:`, movie, 'batch:', batch)
+    console.log(`[worker] Full options object:`, JSON.stringify(options, null, 2))
     
     const promises = []
     promises.push(source.single(options))
     console.debug(source.base)
-    // if (movie) promises.push(source.movie(options))
-    // if (batch) promises.push(source.batch(options))
+    if (batch) promises.push(source.batch(options))
 
     const results = []
     const errors = []

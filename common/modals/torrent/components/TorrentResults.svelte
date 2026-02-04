@@ -236,7 +236,7 @@
     debug(`Querying extensions for torrent sources for ${search?.media?.id}`)
     let promises
     try {
-      promises = await getResultsFromExtensions({ ...request, batch, movie, resolution })
+      promises = await getResultsFromExtensions({ ...request, season: request.season, batch, movie, resolution })
     } catch (error) {
       if (search != null && search.media?.id === request?.media?.id && search.episode === request?.episode) {
         errors = Promise.resolve({ errors: [error] })

@@ -42,6 +42,7 @@ export interface TorrentQuery {
     titles: string[]
     episode?: number
     episodeCount?: number
+    season?:number
     resolution: '2160' | '1080' | '720' | '540' | '480' | ''
     exclusions: string[]
 }
