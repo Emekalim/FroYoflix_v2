@@ -9,7 +9,7 @@
   import { openTorrentModal } from "@/modals/torrent/TorrentModal.svelte";
   import { anilistClient } from "@/modules/anilist.js";
   import { episodesList } from "@/modules/episodes.js";
-  import AnimeResolver from "@/modules/anime/animeresolver.js";
+  import MediaResolver from "@/modules/resolver/MediaResolver.js";
   import { durationMap, getMediaMaxEp } from "@/modules/anime/anime.js";
   import { writable } from "simple-store-svelte";
   import { createEventDispatcher } from "svelte";
@@ -2046,7 +2046,7 @@
           <!-- useful when a torrent is EXTREMELY slow at loading... -->
           {anilistClient.title(media?.media)}
         {:else if current}
-          {AnimeResolver.cleanFileName(current.name)}
+          {MediaResolver.cleanFileName(current.name)}
         {/if}
       </div>
       <div

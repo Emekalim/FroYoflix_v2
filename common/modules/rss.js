@@ -5,7 +5,7 @@ import { cache, caches } from '@/modules/cache.js'
 import { toast } from 'svelte-sonner'
 import { add } from '@/modules/torrent.js'
 import { getEpisodeMetadataForMedia, isSubbedProgress } from '@/modules/anime/anime.js'
-import AnimeResolver from '@/modules/anime/animeresolver.js'
+import MediaResolver from '@/modules/resolver/MediaResolver.js'
 import { anilistClient } from '@/modules/anilist.js'
 import { hasNextPage } from '@/modules/sections.js'
 import { malDubs } from '@/modules/anime/animedubs.js'
@@ -14,7 +14,7 @@ import { getId } from '@/modules/anime/animehash.js'
 import Debug from 'debug'
 const debug = Debug('ui:rss')
 
-export function parseRSSNodes (nodes) {
+export function parseRSSNodes(nodes) {
   return nodes.map(item => {
     const pubDate = item.querySelector('pubDate')?.textContent
     const torrentLink = item.querySelector('enclosure')?.attributes.url.value || item.querySelector('link')?.textContent || '?'
@@ -29,7 +29,7 @@ export function parseRSSNodes (nodes) {
           if (foundHash.length === 32) infoHash = base32toHex(foundHash)
           else infoHash = foundHash
         }
-      } catch (e) {}
+      } catch (e) { }
     }
     const magnetLink = torrentLink?.toLowerCase().endsWith('.torrent') && infoHash ? `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(title)}${tracker ? `&tr=${tracker}` : ''}` : ''
     return {
@@ -45,7 +45,7 @@ export function parseRSSNodes (nodes) {
   })
 }
 
-export async function getRSSContent (url) {
+export async function getRSSContent(url) {
   if (!url) return null
   let res = {}
   try {
@@ -61,11 +61,11 @@ export async function getRSSContent (url) {
 }
 
 class RSSMediaManager {
-  constructor () {
+  constructor() {
     this.resultMap = {}
   }
 
-  getMediaForRSS (page, perPage, url, ignoreErrors = false, ignoreChanged = false) {
+  getMediaForRSS(page, perPage, url, ignoreErrors = false, ignoreChanged = false) {
     const res = this._getMediaForRSS(page, perPage, url, ignoreChanged)
     if (!ignoreErrors) {
       res.catch(error => {
@@ -80,12 +80,12 @@ class RSSMediaManager {
     return Array.from({ length: perPage }, (_, i) => ({ type: 'episode', data: this.fromPending(res, i) }))
   }
 
-  async fromPending (result, i) {
+  async fromPending(result, i) {
     const array = await result
     return array[i]
   }
 
-  async getContentChanged (page, perPage, url, ignoreChanged = false) {
+  async getContentChanged(page, perPage, url, ignoreChanged = false) {
     let content
     try {
       content = await getRSSContent(url)
@@ -107,7 +107,7 @@ class RSSMediaManager {
     return { content, pubDate, pullDate }
   }
 
-  async _getMediaForRSS (page, perPage, url, ignoreChanged = false) {
+  async _getMediaForRSS(page, perPage, url, ignoreChanged = false) {
     debug(`Getting media for RSS feed ${url} page ${page} perPage ${perPage}`)
     const changed = await this.getContentChanged(page, perPage, url, ignoreChanged)
     if (!changed) return this.resultMap[url].result
@@ -121,7 +121,7 @@ class RSSMediaManager {
 
     const encodedUrl = btoa(url)
     await this.findNewReleasesAndNotify(result, cache.getEntry(caches.NOTIFICATIONS, 'lastRSS')?.[encodedUrl]?.date)
-    cache.setEntry(caches.NOTIFICATIONS, 'lastRSS', (current) => ({...current, [encodedUrl]: { date: changed.pullDate }}))
+    cache.setEntry(caches.NOTIFICATIONS, 'lastRSS', (current) => ({ ...current, [encodedUrl]: { date: changed.pullDate } }))
 
     this.resultMap[url] = {
       date: changed.pubDate,
@@ -130,7 +130,7 @@ class RSSMediaManager {
     return result
   }
 
-  async findNewReleasesAndNotify (results, oldDate) {
+  async findNewReleasesAndNotify(results, oldDate) {
     if (!oldDate) return
     const res = await Promise.all(await results)
     const newReleases = res.filter(({ date }) => date?.getTime() > oldDate)
@@ -172,7 +172,7 @@ class RSSMediaManager {
     }
   }
 
-  async structureResolveResults (items) {
+  async structureResolveResults(items) {
     let resolveIndex = 0
     let resolvedData = []
     const processedItems = items.map(item => {
@@ -196,7 +196,7 @@ class RSSMediaManager {
     })
 
     const unresolvedItems = processedItems.filter(item => !item.fromId).map(item => item.original.title)
-    if (unresolvedItems.length > 0) resolvedData = await AnimeResolver.resolveFileAnime(unresolvedItems)
+    if (unresolvedItems.length > 0) resolvedData = await MediaResolver.resolveFileMedia(unresolvedItems)
     const results = processedItems.map(item => {
       if (item.fromId) {
         const { original, fromId, ...rest } = item

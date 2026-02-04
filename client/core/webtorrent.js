@@ -143,7 +143,7 @@ export default class TorrentClient extends WebTorrent {
 
     const createServer = controller => {
       this.server = this.createServer({ controller }, serverMode)
-      this.server.listen(0, () => {})
+      this.server.listen(0, () => { })
     }
     if (controller) controller.then(createServer)
     else createServer()
@@ -327,7 +327,7 @@ export default class TorrentClient extends WebTorrent {
       torrentProgress = torrent.progress
       await torrentStore.set(torrent.infoHash, dataStored)
     }
-    const wrapTorrent  = async () => {
+    const wrapTorrent = async () => {
       clearInterval(interval)
       await cacheBitfield(torrentComplete)
       await this.promoteTorrent(torrent)
@@ -560,7 +560,7 @@ export default class TorrentClient extends WebTorrent {
         }
         if (this.player) {
           this.playerProcess = spawn(this.player, ['' + new URL('http://localhost:' + this.server.address().port + encodeStreamURL(found.streamURL))])
-          this.playerProcess.stdout.on('data', () => {})
+          this.playerProcess.stdout.on('data', () => { })
           this.playerProcess.once('close', () => {
             if (this.destroyed) return
             this.playerProcess = null

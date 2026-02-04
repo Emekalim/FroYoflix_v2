@@ -4,7 +4,7 @@
   import { findInCurrent } from "@/components/MediaHandler.svelte";
   import { page, modal } from "@/modules/navigation.js";
 
-  export function openTorrentModal(
+  export async function openTorrentModal(
     media,
     episode = 1,
     force = false,
@@ -20,10 +20,13 @@
     console.log("[TorrentModal] openTorrentModal called with:", {
       episode,
       season,
-      "media.format": media?.format
+      "media.format": media?.format,
     });
 
-    if (!force && findInCurrent({ media, episode })) {
+    if (
+      !force &&
+      (await findInCurrent({ media, episode, season: seasonNumber }))
+    ) {
       page.navigateTo(page.PLAYER);
       return;
     }

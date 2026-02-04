@@ -21,7 +21,15 @@
   import EpisodeList from "@/modals/details/components/EpisodeList.svelte";
   import ToggleList from "@/modals/details/components/ToggleList.svelte";
   import Scoring from "@/components/Scoring.svelte";
+  import TMDBScoring from "@/components/TMDBScoring.svelte";
   import TrailerModal from "@/modals/TrailerModal.svelte";
+  import { getProgress } from "@/modules/tmdb/tmdb-progress.js";
+  import {
+    fetchRecommendations,
+    fetchExternalIds,
+    getTMDBUrl,
+    getIMDbUrl,
+  } from "@/modules/tmdb/tmdb-api.js";
   import SmartImage from "@/components/visual/SmartImage.svelte";
   import AudioLabel from "@/components/AudioLabel.svelte";
   import Following from "@/modals/details/components/Following.svelte";
@@ -111,23 +119,52 @@
   }
 
   $: episodeOrder = !!staticMedia;
+
+  // TMDB progress tracking
+  let tmdbProgress = null;
+  $: if (staticMedia?.source === "TMDB" && staticMedia?.tmdbId) {
+    getProgress(staticMedia.tmdbId).then((progress) => {
+      tmdbProgress = progress;
+    });
+  }
+
   $: watched =
     media &&
-    media?.source !== "TMDB" &&
-    media?.mediaListEntry?.status === "COMPLETED";
+    ((media?.source !== "TMDB" &&
+      media?.mediaListEntry?.status === "COMPLETED") ||
+      (media?.source === "TMDB" && tmdbProgress?.status === "COMPLETED"));
   $: userProgress =
     media &&
-    media?.source !== "TMDB" &&
-    ["CURRENT", "REPEATING", "PAUSED", "DROPPED"].includes(
-      media?.mediaListEntry?.status,
-    ) &&
-    media?.mediaListEntry?.progress;
+    ((media?.source !== "TMDB" &&
+      ["CURRENT", "REPEATING", "PAUSED", "DROPPED"].includes(
+        media?.mediaListEntry?.status,
+      ) &&
+      media?.mediaListEntry?.progress) ||
+      (media?.source === "TMDB" && tmdbProgress?.progress));
   $: missingIds = staticMedia && [];
   $: recommendations =
     staticMedia &&
     staticMedia?.id &&
     staticMedia?.source !== "TMDB" &&
     anilistClient.recommendations({ id: staticMedia.id });
+
+  // TMDB recommendations
+  let tmdbRecommendations = [];
+  let tmdbExternalIds = null;
+  $: if (staticMedia?.source === "TMDB" && staticMedia?.tmdbId) {
+    fetchRecommendations(
+      staticMedia.tmdbId,
+      staticMedia.format === "TV" ? "tv" : "movie",
+    ).then((recs) => {
+      tmdbRecommendations = recs;
+    });
+    fetchExternalIds(
+      staticMedia.tmdbId,
+      staticMedia.format === "TV" ? "tv" : "movie",
+    ).then((ids) => {
+      tmdbExternalIds = ids;
+    });
+  }
   $: searchIDS =
     staticMedia &&
     staticMedia?.id &&
@@ -484,7 +521,9 @@
                     {playButtonText}
                   </button>
                   <div class="mt-20 d-flex">
-                    {#if Helper.isAuthorized()}
+                    {#if staticMedia?.source === "TMDB"}
+                      <TMDBScoring class="mr-10" {media} viewAnime={true} />
+                    {:else if Helper.isAuthorized()}
                       <Scoring class="mr-10 " {media} viewAnime={true} />
                     {/if}
                     {#if Helper.isAniAuth()}
@@ -566,6 +605,60 @@
                         alt="MyAnimeList"
                       />
                     </button>
+                    {#if staticMedia?.source === "TMDB" && staticMedia?.tmdbId}
+                      <button
+                        class="btn bg-dark-light btn-lg btn-square d-flex align-items-center justify-content-center shadow-none border-0 mr-10"
+                        data-toggle="tooltip"
+                        data-placement="top"
+                        data-target-breakpoint="md"
+                        data-title="TMDB Page"
+                        use:click={() =>
+                          copyToClipboard(
+                            getTMDBUrl(
+                              staticMedia.tmdbId,
+                              staticMedia.format === "TV" ? "tv" : "movie",
+                            ),
+                            "TMDB URL",
+                          )}
+                        on:contextmenu|preventDefault={() =>
+                          IPC.emit(
+                            "open",
+                            getTMDBUrl(
+                              staticMedia.tmdbId,
+                              staticMedia.format === "TV" ? "tv" : "movie",
+                            ),
+                          )}
+                      >
+                        <span
+                          class="font-weight-bold"
+                          style="font-size: 0.9rem;">TMDB</span
+                        >
+                      </button>
+                      {#if tmdbExternalIds?.imdbId}
+                        <button
+                          class="btn bg-dark-light btn-lg btn-square d-flex align-items-center justify-content-center shadow-none border-0"
+                          data-toggle="tooltip"
+                          data-placement="top"
+                          data-target-breakpoint="md"
+                          data-title="IMDb Page"
+                          use:click={() =>
+                            copyToClipboard(
+                              getIMDbUrl(tmdbExternalIds.imdbId),
+                              "IMDb URL",
+                            )}
+                          on:contextmenu|preventDefault={() =>
+                            IPC.emit(
+                              "open",
+                              getIMDbUrl(tmdbExternalIds.imdbId),
+                            )}
+                        >
+                          <span
+                            class="font-weight-bold"
+                            style="font-size: 0.9rem;">IMDb</span
+                          >
+                        </button>
+                      {/if}
+                    {/if}
                   </div>
                 </div>
                 <Following media={staticMedia} />
@@ -717,7 +810,41 @@
                   {/await}
                 </ToggleList>
               {/if}
-              {#if staticMedia?.source !== "TMDB"}
+              {#if staticMedia?.source === "TMDB" && tmdbRecommendations.length > 0}
+                <div
+                  class="w-full d-flex flex-row align-items-center pt-20 mt-10"
+                >
+                  <hr class="w-full" />
+                  <div
+                    class="font-size-18 font-weight-semi-bold px-20 text-white"
+                  >
+                    Recommendations
+                  </div>
+                  <hr class="w-full" />
+                </div>
+                <div class="d-flex flex-wrap gap-10 pt-20">
+                  {#each tmdbRecommendations.slice(0, 10) as rec}
+                    <div
+                      class="tmdb-rec-card bg-dark-light rounded p-10"
+                      style="width: 150px;"
+                    >
+                      {#if rec.posterPath}
+                        <img
+                          src="https://image.tmdb.org/t/p/w200{rec.posterPath}"
+                          alt={rec.title}
+                          class="w-full rounded"
+                        />
+                      {/if}
+                      <div class="font-size-12 mt-5 text-truncate">
+                        {rec.title}
+                      </div>
+                      <div class="font-size-10 text-muted">
+                        ★ {rec.voteAverage?.toFixed(1) || "N/A"}
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {:else if staticMedia?.source !== "TMDB"}
                 {#await recommendations then res}
                   {@const media = res?.data?.Media}
                   {#if media}

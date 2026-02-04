@@ -36,11 +36,13 @@ export default class App {
     minHeight: 390,
     frame: process.platform === 'darwin',
     titleBarStyle: 'hidden',
-    ...(process.platform !== 'darwin' ? { titleBarOverlay: {
+    ...(process.platform !== 'darwin' ? {
+      titleBarOverlay: {
         color: 'rgba(47, 50, 65, 0)',
         symbolColor: '#eee',
         height: 28
-      } } : {}),
+      }
+    } : {}),
     backgroundColor: '#17191c',
     autoHideMenuBar: true,
     webPreferences: {
@@ -276,6 +278,77 @@ export default class App {
     ipcMain.on('quit-and-install', () => {
       if (this.updater.hasUpdate) this.destroy(true)
     })
+
+    // Folder scanner for local media search (recursive)
+    ipcMain.on('scan-folder', async (event, folderPath) => {
+      console.log(`[IPC] Received scan-folder request for: ${folderPath}`);
+
+      try {
+        const fs = await import('fs/promises')
+        const path = await import('path')
+
+        // Check if folder exists
+        try {
+          await fs.access(folderPath)
+          console.log(`[IPC] Folder exists and is accessible: ${folderPath}`)
+        } catch (err) {
+          console.error(`[IPC] Folder not accessible: ${folderPath}`, err.message)
+          event.sender.send('folder-scan-result', [])
+          return
+        }
+
+        // Recursive function to scan all subdirectories
+        async function scanDirectory(dirPath, maxDepth = 5, currentDepth = 0) {
+          const files = []
+
+          // Prevent infinite recursion
+          if (currentDepth >= maxDepth) {
+            console.log(`[Folder Scanner] Max depth reached at: ${dirPath}`)
+            return files
+          }
+
+          try {
+            const entries = await fs.readdir(dirPath, { withFileTypes: true })
+            console.log(`[Folder Scanner] Found ${entries.length} entries in ${dirPath} (depth ${currentDepth})`)
+
+            for (const entry of entries) {
+              const fullPath = path.join(dirPath, entry.name)
+
+              if (entry.isFile()) {
+                files.push({
+                  path: fullPath,
+                  name: entry.name
+                })
+              } else if (entry.isDirectory()) {
+                // Recursively scan subdirectories
+                try {
+                  const subFiles = await scanDirectory(fullPath, maxDepth, currentDepth + 1)
+                  files.push(...subFiles)
+                } catch (err) {
+                  // Skip directories we can't read (permissions, etc.)
+                  console.log(`[Folder Scanner] Skipping directory: ${fullPath} - ${err.message}`)
+                }
+              }
+            }
+          } catch (err) {
+            console.error(`[Folder Scanner] Error reading directory ${dirPath}:`, err.message)
+          }
+
+          return files
+        }
+
+        console.log(`[Folder Scanner] Starting scan of: ${folderPath}`)
+        const startTime = Date.now()
+        const files = await scanDirectory(folderPath)
+        const duration = Date.now() - startTime
+        console.log(`[Folder Scanner] Scan complete! Found ${files.length} files in ${duration}ms`)
+
+        event.sender.send('folder-scan-result', files)
+      } catch (error) {
+        console.error('[Folder Scanner] Error:', error)
+        event.sender.send('folder-scan-result', [])
+      }
+    })
   }
 
   makeWebTorrentWindow() {
@@ -306,7 +379,7 @@ export default class App {
             this.webtorrentWindow.removeAllListeners('closed')
             this.webtorrentWindow.destroy()
           }
-        } catch {}
+        } catch { }
         this.webtorrentWindow = this.makeWebTorrentWindow()
       }
       this.torrentLoad = this.webtorrentWindow.loadURL(development ? 'http://localhost:3000/background.html' : `file://${join(__dirname, '/background.html')}`)
@@ -314,7 +387,7 @@ export default class App {
       if (crashed) this.mainWindow.webContents.send('webtorrent-crashed')
       this.webtorrentWindow.on('closed', () => this.destroy())
       this.webtorrentWindow.webContents.on('render-process-gone', async (e, { reason }) => {
-       if (reason === 'crashed') this.setWebTorrentWindow(true)
+        if (reason === 'crashed') this.setWebTorrentWindow(true)
       })
     }
   }
@@ -345,7 +418,7 @@ export default class App {
         })
         clearTimeout(resolveTimeout)
       }
-    } catch {} // WebTorrent crashed... prevents hanging infinitely.
+    } catch { } // WebTorrent crashed... prevents hanging infinitely.
     if (!this.updater.install(forceRunAfter)) app.quit()
   }
 
@@ -415,10 +488,10 @@ export default class App {
     this.tray.setContextMenu(Menu.buildFromTemplate([
       { label: 'Shiru', enabled: false },
       ...(this.ready ? [
-          { type: 'separator' },
-          { label: 'Show', click: () => this.showAndFocus() },
-          { label: 'Restore', click: () => this.restoreWindow() }
-        ]
+        { type: 'separator' },
+        { label: 'Show', click: () => this.showAndFocus() },
+        { label: 'Restore', click: () => this.restoreWindow() }
+      ]
         : []),
       { type: 'separator' },
       { label: 'Quit', click: () => this.destroy() }

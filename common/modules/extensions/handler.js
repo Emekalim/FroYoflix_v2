@@ -6,7 +6,7 @@ import { anitomyscript, getAniMappings, getMediaMaxEp } from '@/modules/anime/an
 import { checkForZero } from '@//components/MediaHandler.svelte'
 import { status } from '@/modules/networking.js'
 import { extensionManager } from '@/modules/extensions/manager.js'
-import AnimeResolver from '@/modules/anime/animeresolver.js'
+import MediaResolver from '@/modules/resolver/MediaResolver.js'
 import Debug from 'debug'
 const debug = Debug('ui:extensions')
 
@@ -336,7 +336,7 @@ export function dedupe(entries) {
   for (const entry of entries) {
     if (deduped[entry.hash] && !deduped[entry.hash]?.source?.managed) {
       const dupe = deduped[entry.hash]
-      dupe.title = AnimeResolver.cleanFileName(entry.title)
+      dupe.title = MediaResolver.cleanFileName(entry.title)
       dupe.link = entry.link
       dupe.id ??= entry.id
       dupe.seeders ||= entry.seeders >= 30000 ? 0 : entry.seeders
@@ -347,7 +347,7 @@ export function dedupe(entries) {
       dupe.date ||= entry.date
       dupe.type ??= entry.type
     } else {
-      entry.title = AnimeResolver.cleanFileName(entry.title)
+      entry.title = MediaResolver.cleanFileName(entry.title)
       entry.seeders = entry.seeders && entry.seeders < 30000 ? entry.seeders : 0
       entry.leechers = entry.leechers && entry.leechers < 30000 ? entry.leechers : 0
       entry.downloads ||= 0

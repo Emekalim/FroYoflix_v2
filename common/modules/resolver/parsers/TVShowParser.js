@@ -16,6 +16,7 @@ import {
   PATTERNS,
   PATTERN_SCORES,
   QUALITY_TIERS,
+  removeExcludedWords,
   isValidSeason,
   isValidEpisode,
 } from './utils.js'
@@ -43,7 +44,7 @@ export default class TVShowParser extends BaseParser {
 
     // Step 1: Try to extract season/episode patterns
     let seasonEpisodeData = this.extractSeasonEpisode()
-    
+
     if (!seasonEpisodeData) {
       this.addReason(parsed, 'No season/episode pattern found')
       return null
@@ -94,10 +95,18 @@ export default class TVShowParser extends BaseParser {
     titleText = titleText.replace(/\[[^\]]*\]/g, '')
     titleText = titleText.replace(PATTERNS.TV.resolution, '')
 
+    // Remove group signatures at the end (e.g. -MeGusta, -RARBG)
+    // Must be done before cleanTitle() removes dashes
+    titleText = titleText.replace(/-[a-zA-Z0-9]+$/, '')
+
     // Clean up and extract title
     titleText = this.cleanTitle(titleText)
+
     titleText = titleText.replace(/-\s+.*$/i, '').trim()  // Remove episode title after dash
-    
+
+    // Remove excluded words (codecs, quality, etc)
+    titleText = removeExcludedWords(titleText)
+
     if (titleText && titleText.length > 2) {
       parsed.title = titleText
       this.addReason(parsed, `Extracted title: ${parsed.title}`)

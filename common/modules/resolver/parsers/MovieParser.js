@@ -78,7 +78,34 @@ export default class MovieParser extends BaseParser {
 
     // Clean up and extract title
     titleText = this.cleanTitle(titleText)
-    
+
+    // Remove technical terms that might be left over
+    // e.g. "Tenet x264 AAC5 1" -> "Tenet"
+    const techTerms = [
+      // Codecs
+      /\b(x264|x265|h264|h265|hevc|avc|divx|xvid)\b/gi,
+      // Audio - catch AAC/AC3 followed by potential version numbers
+      /\b(aac[\d\.]*|ac3|dts|dd5\.1|5\.1|7\.1|mp3|flac|wav|dual audio)\b/gi,
+      // Qualities
+      /\b(bluray|web-dl|webrip|hdtv|bdrip|brrip|dvdrip|cam|ts|tc|scr)\b/gi,
+      // Release groups/junk
+      /\b(yify|yts|eztv|rarbg|psa|evo|hon3y)\b/gi,
+      // Brackets again just in case
+      /\[.*?\]/g,
+      /\(.*?\)/g,
+      // Trailing numbers that look like disk/part numbers
+      /\b(cd|disk|disc|part|pt)\s*\d+\b/gi,
+      // Isolated numbers at end of string (often part numbers or junk)
+      /\s+\d+$/
+    ]
+
+    for (const regex of techTerms) {
+      titleText = titleText.replace(regex, '')
+    }
+
+    // Final trim
+    titleText = this.cleanTitle(titleText)
+
     if (titleText && titleText.length > 2) {
       parsed.title = titleText
       this.addReason(parsed, `Extracted title: ${parsed.title}`)
@@ -149,8 +176,8 @@ export default class MovieParser extends BaseParser {
     }
 
     // Strong indicator: no season/episode pattern
-    if (!this.basename.match(PATTERNS.TV.seasonEpisode) && 
-        !this.basename.match(PATTERNS.TV.alternateFormat)) {
+    if (!this.basename.match(PATTERNS.TV.seasonEpisode) &&
+      !this.basename.match(PATTERNS.TV.alternateFormat)) {
       score += PATTERN_SCORES.MOVIE.noSeasonEpisode  // 30 points
       this.addReason(parsed, 'Strong: no season/episode')
     } else {
