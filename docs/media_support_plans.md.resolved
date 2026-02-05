@@ -1,0 +1,78 @@
+# Media Support Analysis & Future Implementation
+
+## Why "Video Codec Unsupported" Happens
+
+The error `MEDIA_ERR_SRC_NOT_SUPPORTED` occurs because the application is built on **Electron**, which uses the **Chromium** browser engine to render the UI and play media.
+
+Chromium's built-in HTML5 video player (`<video>`) has strict limitations on what formats it supports out of the box.
+
+### Supported vs. Unsupported Formats
+
+| Feature | Supported by Electron/Chromium | **NOT** Supported (Common in Torrents) |
+| :--- | :--- | :--- |
+| **Containers** | MP4, WebM, Ogg | **MKV** (Matroska), AVI, FLV |
+| **Video Codecs** | H.264 (AVC), VP8, VP9, AV1 | **H.265 (HEVC)**, VC-1, MPEG-2 |
+| **Audio Codecs** | AAC, MP3, Vorbis, Opus, FLAC | **AC3** (Dolby Digital), **E-AC3**, DTS, TrueHD |
+
+**The Issue:** Many high-quality torrent releases use **MKV** containers with **HEVC (H.265)** video and **AC3/DTS** audio. Electron cannot play these natively, leading to the "Video Codec Unsupported" error.
+
+---
+
+## Future Implementation Proposals
+
+To support these formats without forcing the user to use an external player like VLC, we can implement one of the following solutions:
+
+### 1. Real-time Transcoding (FFmpeg)
+**Concept:** Use **FFmpeg** (a powerful multimedia framework) in the background to convert unsupported formats into a stream that Chromium can play (e.g., MP4/H.264/AAC) on the fly.
+
+-   **Pros:**
+    -   Plays almost *any* file format directly in the app.
+    -   No external players required.
+-   **Cons:**
+    -   High CPU/GPU usage (battery drain on laptops).
+    -   Complexity in seeking/scrubbing through the video.
+    -   Requires bundling FFmpeg binaries (increases app size).
+
+**Implementation:**
+-   Spawn an FFmpeg process in the main Electron process.
+-   Pipe the torrent data stream into standard input (stdin) of FFmpeg.
+-   FFmpeg outputs a compatible stream to an internal localhost server.
+-   The frontend `<video>` tag plays the localhost URL.
+
+### 2. WebAssembly (Wasm) Decoders
+**Concept:** Use a JavaScript/Wasm translation of FFmpeg running directly in the browser renderer to decode video frames and paint them to a `<canvas>`.
+
+-   **Pros:**
+    -   Portable, runs entirely in the designated view.
+-   **Cons:**
+    -   Performance is significantly worse than native playback (no hardware acceleration).
+    -   Likely to stutter with 1080p+ HEVC content.
+
+### 3. Integrated Native Player (mpv.js)
+**Concept:** Instead of using the HTML5 `<video>` tag, embed a native player instance (like **mpv**) directly into the Electron window.
+
+-   **Pros:**
+    -   **Best Performance:** Uses native hardware decoding (like VLC).
+    -   **Widest Support:** Plays everything mpv/VLC plays (MKV, HEVC, AC3, subtitles).
+    -   Feels integrated (not a separate window).
+-   **Cons:**
+    -   Complex to implement (native node modules).
+    -   Harder to overlay HTML UI controls on top of the native surface.
+
+### 4. Custom Electron Build (Not Recommended)
+**Concept:** Compile a custom version of Electron with proprietary codecs enabled.
+-   **Pros:** Native `<video>` tag support for more formats.
+-   **Cons:**
+    -   Licensing/Patent issues (H.265/HEVC is patented).
+    -   Maintenance nightmare (you have to recompile Electron for every update).
+    -   Still doesn't support MKV containers natively.
+
+## Recommendation
+
+**Short Term:**
+-   Continue refining the **External Player (VLC)** integration as a fallback for unsupported files.
+-   Better detection: Check codec metadata *before* playback and prompt the user to "Play Externally" immediately if unsupported.
+
+**Long Term:**
+-   **Solution 1 (Transcoding)** is the most standard approach for media servers (like Plex/Jellyfin) and would work well here if CPU usage is managed.
+-   **Solution 3 (mpv integration)** provides the best user experience but requires significant architectural changes.
