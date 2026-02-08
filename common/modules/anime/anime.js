@@ -170,28 +170,6 @@ function addAnimeType(obj, newType) {
  */
 export async function hasZeroEpisode(media, existingMappings) { // really wish they could make fetching zero episodes less painful.
   if (!media) return null
-  // We need to dynamically import AnimeResolver or ensure it's available.
-  // Original file imported AnimeResolver at the top: import AnimeResolver from '@/modules/anime/animeresolver.js'
-  // Let's check imports at the top of this file later, but generally they shouldn't have changed unless I removed them.
-  // Wait, I should double check if I removed `import AnimeResolver`.
-  // I didn't remove imports in my edits.
-
-  // However, I need to make sure I have access to `getAniMappings`.
-  // `getAniMappings` wasn't imported in the original file view I saw (lines 1-800).
-  // It might be a global or auto-imported or defined in the file.
-  // The original code called `await getAniMappings(media.id)`.
-  // If undefined, it will crash.
-
-  // Let's assume `getAniMappings` is available or imported.
-  // If not, I'll need to find it.
-
-  // Wait, looking at Step 81 (lines 1-800), `getAniMappings` is NOT defined or imported in lines 1-20.
-  // It is used in line 234.
-  // Maybe it was imported?
-  // Use grep to check for getAniMappings definition/import.
-  // If I restore the code and it's missing, it will crash.
-
-  // Safe bet: The original file WORKED. So `getAniMappings` must be there.
   // I'll assume lines 1-20 didn't show it or I missed it.
   // Actually, I should check if I deleted it.
   // I mostly replaced functions.
