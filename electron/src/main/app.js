@@ -15,6 +15,7 @@ import Protocol from './protocol.js'
 import Updater from './updater.js'
 import Dialog from './dialog.js'
 import Debug from './debugger.js'
+import { Transcoder } from './transcoder.js'
 
 export default class App {
   icon = nativeImage.createFromPath(join(__dirname, process.platform === 'win32' ? '/icon_filled.ico' : '/icon_filled.png'))
@@ -66,6 +67,7 @@ export default class App {
   close = false
   ready = false
   notifications = {}
+  transcoder = new Transcoder()
 
   constructor() {
     this.mainWindow.setMenuBarVisibility(false)
@@ -90,6 +92,11 @@ export default class App {
     }
     ipcMain.handle('electron:isMinimized', () => this.isMinimized)
     this.mainWindow.on('minimize', () => minimize(true))
+    // Start transcoding server
+    this.transcoder.start().then(port => {
+      console.log('[Main] Transcoder started on port:', port)
+    })
+    ipcMain.handle('get-transcoder-port', () => this.transcoder.port)
     this.mainWindow.on('hide', () => minimize(true))
     this.mainWindow.on('restore', () => minimize(false))
     this.mainWindow.on('show', () => minimize(false))
@@ -402,6 +409,7 @@ export default class App {
     this.mainWindow.webContents?.closeDevTools?.()
     this.tray?.destroy()
     for (const timeout of this.timeouts) clearTimeout(timeout)
+    this.transcoder.stop()
     this.timeouts.clear()
     clearTimeout(this.stateTimeout)
     saveWindowState(this.mainWindow)

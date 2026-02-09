@@ -28,6 +28,7 @@
   import { click } from "@/modules/click.js";
   import VideoDeband from "video-deband";
   import Helper from "@/modules/helper.js";
+  import Hls from "hls.js";
 
   import { w2gEmitter, state } from "@/routes/w2g/WatchTogetherPage.svelte";
   import ManagerModal from "@/modals/manager/ManagerModal.svelte";
@@ -299,7 +300,9 @@
 
   function updateFiles(files) {
     if (files?.length) {
-      videos = files.filter((file) => videoRx.test(file.name));
+      videos = files.filter(
+        (file) => videoRx.test(file.name) && !file.name.startsWith("._"),
+      );
       if (videos?.length) {
         if (subs) {
           subs.files = files || [];
@@ -342,8 +345,14 @@
   }
   $: loadDeband($settings.playerDeband, video);
 
+  let hls;
   let externalReadyListener;
   async function handleCurrent(file) {
+    // Skip hidden files
+    if (file?.name?.startsWith("._")) {
+      console.log("[PlayerPage] Skipping hidden file:", file.name);
+      return;
+    }
     paused = true;
     canPlay = false;
     video?.pause?.();
@@ -373,10 +382,81 @@
 
   async function setCurrent(file, launchExternal = false) {
     if (!externalPlayback) {
-      src = file.url;
-      subs = new Subtitles(video, files, current, handleHeaders);
-      video.load();
-      await loadAnimeProgress();
+      // Cleanup previous HLS instance
+      if (hls) {
+        hls.destroy();
+        hls = null;
+      }
+
+      // Check if file needs HLS transcoding (unsupported formats)
+      const needsTranscoding =
+        file.url?.startsWith("file://") &&
+        ["mkv", "avi", "wmv", "flv", "ts", "m2ts"].some((ext) =>
+          file.name?.toLowerCase().endsWith(`.${ext}`),
+        );
+
+      if (needsTranscoding && ELECTRON) {
+        try {
+          // Get transcoder port
+          const port = await window.electron.getTranscoderPort();
+          if (!port) throw new Error("Transcoder not available");
+
+          // Request HLS URL from transcoder
+          const filePath = decodeURIComponent(file.url.replace("file://", ""));
+          const response = await fetch(
+            `http://localhost:${port}/init?file=${encodeURIComponent(filePath)}`,
+          );
+          const { url: hlsUrl } = await response.json();
+
+          // CRITICAL: Clear video src before attaching HLS
+          src = "";
+          video.removeAttribute("src");
+
+          // Initialize hls.js with optimized buffer settings
+          hls = new Hls({
+            debug: false,
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60,
+            enableWorker: true,
+            lowLatencyMode: false,
+          });
+
+          hls.loadSource(hlsUrl);
+          hls.attachMedia(video);
+
+          // Error handling
+          hls.on(Hls.Events.ERROR, (event, data) => {
+            if (data.fatal) {
+              console.error("[HLS] Fatal error type:", data.type);
+              console.error("[HLS] Fatal error details:", data.details);
+              if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                hls.startLoad();
+              } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                hls.recoverMediaError();
+              } else {
+                toast.error("HLS playback failed");
+              }
+            }
+          });
+
+          subs = new Subtitles(video, files, current, handleHeaders);
+          await loadAnimeProgress();
+        } catch (e) {
+          console.error("[HLS] Transcoding failed:", e);
+          toast.error("Failed to transcode video");
+          // Fallback to direct playback
+          src = file.url;
+          subs = new Subtitles(video, files, current, handleHeaders);
+          video.load();
+          await loadAnimeProgress();
+        }
+      } else {
+        // Direct playback for supported formats
+        src = file.url;
+        subs = new Subtitles(video, files, current, handleHeaders);
+        video.load();
+        await loadAnimeProgress();
+      }
     } else externalPlaying = false;
     emit("current", current); // #handleCurrent in MediaHandler
     if (externalPlayback) {
@@ -2036,7 +2116,11 @@
       {/if}
     </div>
   {/if}
-  <ManagerModal playing={current} files={playableFiles} {playFile} />
+  <ManagerModal
+    playing={current}
+    files={playableFiles.filter((f) => !f.name.startsWith("._"))}
+    {playFile}
+  />
   <div class="top z-40 row d-title">
     <div class="stats pl-20 col-4 d-title">
       <div class="font-weight-bold overflow-hidden text-truncate font-scale-23">

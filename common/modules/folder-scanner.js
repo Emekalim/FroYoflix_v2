@@ -40,8 +40,10 @@ export async function scanDownloadFolder() {
             clearTimeout(timeout);
             IPC.off('folder-scan-result', handleResult);
 
-            // Filter for video files only
-            const videoFiles = files.filter(file => videoRx.test(file.name));
+            // Filter for video files only, excluding macOS hidden files
+            const videoFiles = files.filter(file =>
+                videoRx.test(file.name) && !file.name.startsWith("._")
+            );
             console.log(`[Folder Scanner] Found ${videoFiles.length} video files out of ${files.length} total files`);
 
             resolve(videoFiles);
