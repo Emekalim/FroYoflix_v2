@@ -135,6 +135,15 @@
       "allowToChangeInstallationDirectory": true,
       "oneClick": false,
       "artifactName": "${os}-${productName}-v${version}-installer.${ext}"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "resources/${os}",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
   }
 }
