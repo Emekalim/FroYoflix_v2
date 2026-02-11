@@ -47,7 +47,7 @@ VLC Media Player's resilience comes from its unique architecture around **libavc
 **Update (2026-02-11): Repair Loop & Performance**
 > **Status**: **RESOLVED**
 > **Issue**: Repair would loop indefinitely because the repaired file was deleted with cache.
-> **Fix**: Implemented `shiru-repair` persistent directory.
+> **Fix**: Implemented `froyo-repair` persistent directory.
 > **Optimization**: Repaired files are now **Stream Copied** (`-c copy`) for instant playback.
 
 **Repair Performance & Limitations:**

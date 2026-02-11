@@ -1,4 +1,4 @@
-# Shiru Multi-Media Extension — Phase 1 & 2 Implementation Guide
+# FroYo Multi-Media Extension — Phase 1 & 2 Implementation Guide
 
 **Date**: 2026-02-02  
 **Status**: ✅ Phase 1 Complete | Phase 2 In Progress  
@@ -587,7 +587,7 @@ A comprehensive test suite has been created in `common/modules/providers/__tests
 
 ```
 ╔════════════════════════════════════════════════════════╗
-║        SHIRU PROVIDER ABSTRACTION TEST SUITE           ║
+║        FroYo PROVIDER ABSTRACTION TEST SUITE           ║
 ║                      TEST SUMMARY                      ║
 ║  Passed: 10/10 (100%)                                 ║
 ╠════════════════════════════════════════════════════════╣

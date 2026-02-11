@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Extensions Manager (`manager.js`) is the core orchestration system for Shiru's plugin architecture. It handles the complete lifecycle of extensions: discovery, fetching, validation, initialization, caching, updating, and execution management.
+The Extensions Manager (`manager.js`) is the core orchestration system for FroYo's plugin architecture. It handles the complete lifecycle of extensions: discovery, fetching, validation, initialization, caching, updating, and execution management.
 
 **Architecture Pattern**: This is a **Manager/Mediator Pattern** implementation combined with **Strategy Pattern** for protocol handling. Think of it as a Python class that manages a registry of subprocess workers (similar to Python's `multiprocessing.Pool`).
 

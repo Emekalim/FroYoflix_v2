@@ -192,7 +192,7 @@ node common/modules/resolver/__tests__/run-all.mjs           # 18/18
 
 ---
 
-**Location**: `SourceExtensions/shiru/sources/`
+**Location**: `SourceExtensions/froyo/sources/`
 
 **Current Structure**:
 - `abstract.js` - AbstractSource base class with interface contract

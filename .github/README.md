@@ -1,38 +1,38 @@
 <p align="center">
-	<a href="https://github.com/RockinChaos/Shiru">
-		<img src="../.github/docs/assets/logo_filled.svg" width="400" alt="Shiru">
+	<a href="https://github.com/Emekalim/FroYoflix_v2">
+		<img src="../.github/docs/assets/logo_filled.svg" width="400" alt="FroYo">
 	</a>
 </p>
 <h4 align="center"><b>Manage your personal media library, organize your collection, and stream your content in real time, no waiting required!</b></h4>
 
 <p align="center">
-  <a href="https://github.com/RockinChaos/Shiru/wiki/">📚 Wiki</a> •
-  <a href="https://github.com/RockinChaos/Shiru/wiki/features/">✨ Features</a> •
-  <a href="https://github.com/RockinChaos/Shiru/wiki/faq/">❓ FAQ</a> •
+  <a href="https://github.com/Emekalim/FroYoflix_v2/wiki/">📚 Wiki</a> •
+  <a href="https://github.com/Emekalim/FroYoflix_v2/wiki/features/">✨ Features</a> •
+  <a href="https://github.com/Emekalim/FroYoflix_v2/wiki/faq/">❓ FAQ</a> •
   <a href="#-building--development">🔧 Building & Development</a> •
-  <a href="https://github.com/RockinChaos/Shiru/releases/latest/">⬇️ Download</a>
+  <a href="https://github.com/Emekalim/FroYoflix_v2/releases/latest/">⬇️ Download</a>
 </p>
 
 > [!IMPORTANT]
 > This application **does not host, distribute, or provide media content**.
 > 
-> Shiru is intended solely as a **personal media library manager** for organizing and playing content that you **legally own**. Please ensure that any media you use with this app is obtained **legally** and that you respect all applicable **copyright laws**.
+> FroYo is intended solely as a **personal media library manager** for organizing and playing content that you **legally own**. Please ensure that any media you use with this app is obtained **legally** and that you respect all applicable **copyright laws**.
 
 https://github.com/user-attachments/assets/3ff100f0-e008-4ff5-88f5-ad4290863f96
 
 <p align="center">
-  <a href="https://github.com/RockinChaos/Shiru/releases/latest/"><img alt="Downloads" src="https://img.shields.io/github/downloads/RockinChaos/Shiru/total?style=flat-square"></a>
-  <a href="https://github.com/RockinChaos/Shiru/releases/latest/"><img alt="Latest Release" src="https://img.shields.io/github/v/release/RockinChaos/Shiru?style=flat-square"></a>
-  <a href="https://github.com/RockinChaos/Shiru/commits"><img alt="Last Commit" src="https://img.shields.io/github/last-commit/RockinChaos/Shiru?style=flat-square"></a>
-  <a href="https://github.com/RockinChaos/Shiru/stargazers"><img alt="Stargazers" src="https://img.shields.io/github/stars/RockinChaos/Shiru?style=flat-square"></a>
-  <a href="../LICENSE"><img alt="License: GPLv3" src="https://img.shields.io/github/license/RockinChaos/Shiru?style=flat-square"></a>
+  <a href="https://github.com/Emekalim/FroYoflix_v2/releases/latest/"><img alt="Downloads" src="https://img.shields.io/github/downloadsEmekalim/FroYoflix_v2/total?style=flat-square"></a>
+  <a href="https://github.com/Emekalim/FroYoflix_v2/releases/latest/"><img alt="Latest Release" src="https://img.shields.io/github/v/releaseEmekalim/FroYoflix_v2?style=flat-square"></a>
+  <a href="https://github.com/Emekalim/FroYoflix_v2/commits"><img alt="Last Commit" src="https://img.shields.io/github/last-commitEmekalim/FroYoflix_v2?style=flat-square"></a>
+  <a href="https://github.com/Emekalim/FroYoflix_v2/stargazers"><img alt="Stargazers" src="https://img.shields.io/github/starsEmekalim/FroYoflix_v2?style=flat-square"></a>
+  <a href="../LICENSE"><img alt="License: GPLv3" src="https://img.shields.io/github/licenseEmekalim/FroYoflix_v2?style=flat-square"></a>
 </p>
 
 ## 📃 **About**
 
-**Shiru** is designed to enhance your personal media experience with a feature-rich environment and full mobile support. It provides a seamless way to organize, track, and play content you legally own.
+**FroYo** is designed to enhance your personal media experience with a feature-rich environment and full mobile support. It provides a seamless way to organize, track, and play content you legally own.
 
-Shiru lets you enjoy your collection in real time, with fast playback, high-quality video, and a clean, ad-free interface.
+FroYo lets you enjoy your collection in real time, with fast playback, high-quality video, and a clean, ad-free interface.
 
 
 ### ✨ Key Features:
@@ -57,7 +57,7 @@ Shiru lets you enjoy your collection in real time, with fast playback, high-qual
     - Automatically detect episodes from file names.
     - Support for custom feeds and resolution preferences.
     - Stream your content in real time without waiting.
-    - Support for custom [extensions](https://github.com/RockinChaos/Shiru/wiki/Extensions).
+    - Support for custom [extensions](https://github.com/Emekalim/FroYoflix_v2/wiki/Extensions).
     - Adjustable network speeds.
 
 - 🔔 **Dub & Sub Notifications**:
@@ -106,21 +106,21 @@ Shiru lets you enjoy your collection in real time, with fast playback, high-qual
 
 #### Arch:
 ```bash
-paru -S shiru
+paru -S froyo
 ```
 
 Or if you use yay:
 
 ```bash
-yay -S shiru
+yay -S froyo
 ```
 
 #### Debian/Ubuntu:
-1. 🔗 Download the `linux-Shiru-version.deb` from the [releases page](https://github.com/RockinChaos/Shiru/releases/latest).
+1. 🔗 Download the `linux-FroYo-version.deb` from the [releases page](https://github.com/Emekalim/FroYoflix_v2/releases/latest).
 2. 📦 Install using the package manager:
 
     ```bash
-    apt install linux-Shiru-*.deb
+    apt install linux-FroYo-*.deb
     ```
 
 ---
@@ -129,13 +129,13 @@ yay -S shiru
 #### Option 1: 💨 Install via Winget
 For Windows 10 **1809** or later, or Windows 11:
 ```bash
-winget install shiru
+winget install froyo
 ```
 
 #### Option 2: 🔄 Installer or Portable Version
-1. 🔗 Download from the [releases page](https://github.com/RockinChaos/Shiru/releases/latest):
-   - **Installer:** `win-Shiru-vx.x.x-installer.exe`
-   - **Portable:** `win-Shiru-vx.x.x-portable.exe` *(No installation required, just run it)*
+1. 🔗 Download from the [releases page](https://github.com/Emekalim/FroYoflix_v2/releases/latest):
+   - **Installer:** `win-FroYo-vx.x.x-installer.exe`
+   - **Portable:** `win-FroYo-vx.x.x-portable.exe` *(No installation required, just run it)*
 
 ## 🔧 Building & Development
 

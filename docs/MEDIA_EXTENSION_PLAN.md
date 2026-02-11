@@ -1,4 +1,4 @@
-# Shiru — Multi-Media Extension Plan
+# FroYo — Multi-Media Extension Plan
 
 **Date**: 2026-01-18  
 **Last Updated**: 2026-02-03  
@@ -6,7 +6,7 @@
 
 ## Goal
 
-Extend Shiru to support TV shows, movies, and other video media while preserving full anime functionality via AniList and MyAnimeList. Provide a unified metadata abstraction so the app can use multiple providers (AniList, MAL, TMDB, Trakt, etc.) and support mixed media types in the UI, search, and extensions ecosystem.
+Extend FroYo to support TV shows, movies, and other video media while preserving full anime functionality via AniList and MyAnimeList. Provide a unified metadata abstraction so the app can use multiple providers (AniList, MAL, TMDB, Trakt, etc.) and support mixed media types in the UI, search, and extensions ecosystem.
 
 ---
 

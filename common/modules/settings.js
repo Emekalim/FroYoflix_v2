@@ -34,7 +34,7 @@ try {
 
 function setDefaults() {
   scopedDefaults = {
-    homeSections: [...(storedSettings.rssFeedsNew || defaults.rssFeedsNew).map(([title]) => [title, ['N/A'], ['N/A']]), ...(storedSettings.customSections || defaults.customSections).map(([title]) => [title, 'TRENDING_DESC', ['Anime', 'MOVIE', 'TV']]), ['Subbed Releases', 'N/A', ['Anime', 'MOVIE', 'TV']], ['Dubbed Releases', 'N/A', ['Anime', 'MOVIE', 'TV']], ['Continue Watching', 'UPDATED_TIME_DESC',  []], ['Sequels You Missed', 'POPULARITY_DESC',  []], ['Planning List', 'POPULARITY_DESC',  []], ['Popular This Season', 'N/A', ['Anime', 'MOVIE', 'TV']], ['Trending Now', 'N/A', ['Anime', 'MOVIE', 'TV']], ['All Time Popular', 'N/A', ['Anime', 'MOVIE', 'TV']]]
+    homeSections: [...(storedSettings.rssFeedsNew || defaults.rssFeedsNew).map(([title]) => [title, ['N/A'], ['N/A']]), ...(storedSettings.customSections || defaults.customSections).map(([title]) => [title, 'TRENDING_DESC', ['Anime', 'MOVIE', 'TV']]), ['Subbed Releases', 'N/A', ['Anime', 'MOVIE', 'TV']], ['Dubbed Releases', 'N/A', ['Anime', 'MOVIE', 'TV']], ['Continue Watching', 'UPDATED_TIME_DESC', []], ['Sequels You Missed', 'POPULARITY_DESC', []], ['Planning List', 'POPULARITY_DESC', []], ['Popular This Season', 'N/A', ['Anime', 'MOVIE', 'TV']], ['Trending Now', 'N/A', ['Anime', 'MOVIE', 'TV']], ['All Time Popular', 'N/A', ['Anime', 'MOVIE', 'TV']]]
   }
 }
 
@@ -52,7 +52,7 @@ settings.subscribe(value => {
   cache.setEntry(caches.GENERAL, 'settings', value)
 })
 
-function resetSettings () {
+function resetSettings() {
   storedSettings = { ...defaults }
   setDefaults()
   settings.value = { ...defaults, ...scopedDefaults, ...storedSettings }
@@ -98,9 +98,9 @@ window.addEventListener('paste', ({ clipboardData }) => {
           const malMatch = text.match(malRegex)
           let protocol = text
           if (anilistMatch) {
-            protocol = `shiru://anime/${anilistMatch[1]}`
+            protocol = `froyo://anime/${anilistMatch[1]}`
           } else if (malMatch) {
-            protocol = `shiru://malanime/${malMatch[1]}`
+            protocol = `froyo://malanime/${malMatch[1]}`
           }
           IPC.emit('handle-protocol', protocol)
         }
@@ -109,19 +109,19 @@ window.addEventListener('paste', ({ clipboardData }) => {
   }
 })
 IPC.on('altoken', handleToken)
-async function handleToken (token) {
+async function handleToken(token) {
   const { anilistClient } = await import('./anilist.js')
-  const viewer = await anilistClient.viewer({token})
+  const viewer = await anilistClient.viewer({ token })
   if (!viewer.data?.Viewer) {
-    toast.error('Failed to sign in with AniList. Please try again.', {description: JSON.stringify(viewer)})
+    toast.error('Failed to sign in with AniList. Please try again.', { description: JSON.stringify(viewer) })
     debug('Failed to sign in with AniList:', JSON.stringify(viewer))
     return
   }
-  await swapProfiles({token, viewer}, true)
+  await swapProfiles({ token, viewer }, true)
 }
 
 IPC.on('maltoken', handleMalToken)
-async function handleMalToken (code, state) {
+async function handleMalToken(code, state) {
   const { clientID, malClient } = await import('./myanimelist.js')
   if (!state || !code) {
     toast.error('Failed to sign in with MyAnimeList. Please try again.')
@@ -131,13 +131,13 @@ async function handleMalToken (code, state) {
   const response = await fetch('https://myanimelist.net/v1/oauth2/token', {
     method: 'POST',
     headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: new URLSearchParams({
-        client_id: clientID,
-        grant_type: 'authorization_code',
-        code: code,
-        code_verifier: sessionStorage.getItem(state)
+      client_id: clientID,
+      grant_type: 'authorization_code',
+      code: code,
+      code_verifier: sessionStorage.getItem(state)
     })
   })
   if (!response.ok) {
@@ -155,7 +155,7 @@ async function handleMalToken (code, state) {
   await swapProfiles({ token: oauth.access_token, refresh: oauth.refresh_token, refresh_in: Math.floor((Date.now() + 14 * 24 * 60 * 60 * 1000) / 1000), reauth: false, viewer }, true)
 }
 
-export async function refreshMalToken (token) {
+export async function refreshMalToken(token) {
   const { clientID } = await import('./myanimelist.js')
   const currentProfile = malToken?.token === token
   const refresh = currentProfile ? malToken.refresh : profiles.value.find(profile => profile.token === token)?.refresh
@@ -176,9 +176,9 @@ export async function refreshMalToken (token) {
   }
   if (!refresh || refresh.length <= 0 || !response?.ok) {
     if (currentProfile && !malToken.reauth) {
-      toast.error('Failed to re-authenticate with MyAnimeList. You will need to log in again.', {description: JSON.stringify(response?.status || response)})
+      toast.error('Failed to re-authenticate with MyAnimeList. You will need to log in again.', { description: JSON.stringify(response?.status || response) })
     }
-    debug(`Failed to refresh MyAnimeList User Token ${ !refresh || refresh.length <= 0 ? 'as the refresh token could not be fetched!' : 'the refresh token has likely expired: ' + JSON.stringify(response)}`)
+    debug(`Failed to refresh MyAnimeList User Token ${!refresh || refresh.length <= 0 ? 'as the refresh token could not be fetched!' : 'the refresh token has likely expired: ' + JSON.stringify(response)}`)
     if (currentProfile) {
       malToken.reauth = true
       localStorage.setItem('MALviewer', JSON.stringify(malToken))
@@ -196,12 +196,12 @@ export async function refreshMalToken (token) {
     localStorage.setItem('MALviewer', JSON.stringify(malToken))
   } else {
     profiles.update(profiles =>
-        profiles.map(profile => {
-          if (profile.token === token) {
-            return { viewer: viewer, token: oauth.access_token, refresh: oauth.refresh_token, refresh_in: refresh_in, reauth: false }
-          }
-          return profile
-        })
+      profiles.map(profile => {
+        if (profile.token === token) {
+          return { viewer: viewer, token: oauth.access_token, refresh: oauth.refresh_token, refresh_in: refresh_in, reauth: false }
+        }
+        return profile
+      })
     )
   }
   debug(`Successfully refreshed authorization token, updated to token ${oauth.access_token} with the refresh token ${oauth.refresh_token}`)
@@ -215,9 +215,9 @@ export async function swapProfiles(profile, newProfile) {
   if (profile == null && profiles.value.length > 0) {
     let firstProfile
     profiles.update(profiles => {
-        firstProfile = profiles[0]
-        setViewer(firstProfile)
-        return profiles.slice(1)
+      firstProfile = profiles[0]
+      setViewer(firstProfile)
+      return profiles.slice(1)
     })
   } else if (profile != null) {
     if (profile?.viewer?.data?.Viewer?.id === currentProfile?.viewer?.data?.Viewer?.id && newProfile) {
@@ -238,7 +238,7 @@ export async function swapProfiles(profile, newProfile) {
   location.reload()
 }
 
-function setViewer (profile) {
+function setViewer(profile) {
   localStorage.removeItem(alToken ? 'ALviewer' : 'MALviewer')
   if (profile?.viewer?.data?.Viewer?.avatar) {
     alToken = profile

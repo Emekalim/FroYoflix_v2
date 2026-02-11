@@ -46,7 +46,7 @@ const manifestCache = new Map()
  */
 export async function loadExtensions(extensionsDir = null) {
   if (!extensionsDir) {
-    extensionsDir = path.join(__dirname, '..', '..', 'SourceExtensions', 'shiru', 'sources')
+    extensionsDir = path.join(__dirname, '..', '..', 'SourceExtensions', 'froyo', 'sources')
   }
 
   const result = {

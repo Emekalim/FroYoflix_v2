@@ -1194,7 +1194,7 @@
       nowPlaying.title,
       nowPlaying.episode,
       nowPlaying.episodeTitle,
-      "Shiru",
+      "FroYo",
     ]
       .filter((i) => i)
       .join(" - ");

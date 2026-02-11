@@ -5,7 +5,7 @@ This document tracks major feature implementations, architectural improvements, 
 ## ✅ Completed Improvements
 
 ### 1. Multi-Media Support (Media Extension Overhaul)
-**Goal:** Extend Shiru to support TV Shows, Movies, and mixed media types while preserving Anime functionality.
+**Goal:** Extend FroYo to support TV Shows, Movies, and mixed media types while preserving Anime functionality.
 -   **Core Plans:** [Media Extension Plan](MEDIA_EXTENSION_PLAN.md), [TMDB Analysis](TMDB_COMPATIBILITY_ANALYSIS.md)
 -   **Status:** **Phases 1-4 Complete**.
 -   **Key Implementations:**
@@ -25,7 +25,7 @@ This document tracks major feature implementations, architectural improvements, 
 -   **Plan:** [HLS Caching Plan](HLS_CACHING_PLAN.md)
 -   **Status:** **Implemented**.
 -   **Implementation:**
-    -   Transcode artifacts stored in `temp/shiru-transcode/{hash}`.
+    -   Transcode artifacts stored in `temp/froyo-transcode/{hash}`.
     -   Stateless stateless serving of HLS playlists via `transcoder.js`.
     -   Persistent caching using content-based hashing (`filepath` + `mtime`).
 
@@ -81,7 +81,7 @@ This document tracks major feature implementations, architectural improvements, 
     -   Real-time progress bars for HandBrake repairs.
     -   Download status and speed.
     -   Queue management.
-    -   **Repair Cache Management**: LRU eviction or manual clearing for `shiru-repair` to manage disk usage.
+    -   **Repair Cache Management**: LRU eviction or manual clearing for `froyo-repair` to manage disk usage.
 
 ### 5. Transcoding Active Streams (Investigation)
 **Goal:** Apply repair logic to *downloading* torrents for "Play While Downloading".

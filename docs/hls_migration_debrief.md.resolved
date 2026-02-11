@@ -39,7 +39,7 @@ We implemented a **local HLS streaming architecture** within an Electron applica
 -   [fluent-ffmpeg](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/node_modules/fluent-ffmpeg): Command construction.
 
 **Infrastructure**:
--   **Local Temporary Directory**: Stores HLS segments (`app.getPath('temp')/shiru-transcode/<hash>`).
+-   **Local Temporary Directory**: Stores HLS segments (`app.getPath('temp')/froyo-transcode/<hash>`).
 -   **Hash Logic**: SHA-256 of `filepath + mtime + size` ensures cache validity.
 
 ---

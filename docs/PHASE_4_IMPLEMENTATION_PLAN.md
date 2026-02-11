@@ -1,4 +1,4 @@
-# Shiru — Phase 4 Implementation Plan
+# FroYo — Phase 4 Implementation Plan
 
 **Phase**: 4 — Extension System Update  
 **Status**: 📋 Ready to implement  

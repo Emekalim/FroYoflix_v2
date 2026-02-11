@@ -100,8 +100,8 @@ class AnimeSchedule {
         }
 
         scheduleNextCheck()
-        this.dubAiringLists.subscribe(async value  => this.dubAiring.value = await value)
-        this.subAiringLists.subscribe(async value  => this.subAiring.value = await value)
+        this.dubAiringLists.subscribe(async value => this.dubAiring.value = await value)
+        this.subAiringLists.subscribe(async value => this.subAiring.value = await value)
     }
 
     async findNewDelayedEpisodes() { // currently only dubs are handled as they typically get delayed...
@@ -120,13 +120,13 @@ class AnimeSchedule {
                         id: media?.id,
                         title: anilistClient.title(media),
                         message: `Episode ${entry.episodeNumber} has been delayed until ` + (entry?.delayedIndefinitely && !entry.status?.toUpperCase()?.includes('FINISHED') ? 'further notice, production has been suspended' : entry.delayedIndefinitely ? 'further notice, this is determined to be a partial dub so this episode will likely not be dubbed' : (new Date(entry?.delayedUntil).toLocaleString('en-US', {
-                          weekday: 'long',
-                          year: 'numeric',
-                          month: 'short',
-                          day: '2-digit',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          hour12: true
+                            weekday: 'long',
+                            year: 'numeric',
+                            month: 'short',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: true
                         }))) + '!',
                         icon: media?.coverImage?.medium,
                         iconXL: media?.coverImage?.extraLarge,
@@ -137,10 +137,10 @@ class AnimeSchedule {
                         delayed: true,
                         dub: true,
                         click_action: 'VIEW',
-                        button: [{ text: 'View Anime', activation: `shiru://anime/${media?.id}` }],
+                        button: [{ text: 'View Anime', activation: `froyo://anime/${media?.id}` }],
                         activation: {
-                          type: 'protocol',
-                          launch: `shiru://anime/${media?.id}`
+                            type: 'protocol',
+                            launch: `froyo://anime/${media?.id}`
                         }
                     }
                 }))
@@ -181,13 +181,13 @@ class AnimeSchedule {
                                 id: media?.id,
                                 title: anilistClient.title(media),
                                 message: `${type === 'Dub' ? 'A dub has just been' : 'Was recently'} announced for ` + (new Date(type === 'Dub' ? media?.airingSchedule?.nodes?.[0]?.airingAt : media?.airingSchedule?.nodes?.[0]?.airingAt * 1000).toLocaleString('en-US', {
-                                  weekday: 'long',
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: '2-digit',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  hour12: true
+                                    weekday: 'long',
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    hour12: true
                                 })) + '!',
                                 icon: media?.coverImage?.medium,
                                 iconXL: media?.coverImage?.extraLarge,
@@ -196,10 +196,10 @@ class AnimeSchedule {
                                 format: media?.format,
                                 dub: type === 'Dub',
                                 click_action: 'VIEW',
-                                button: [{ text: 'View Anime', activation: `shiru://anime/${media?.id}` }],
+                                button: [{ text: 'View Anime', activation: `froyo://anime/${media?.id}` }],
                                 activation: {
-                                  type: 'protocol',
-                                  launch: `shiru://anime/${media?.id}`
+                                    type: 'protocol',
+                                    launch: `froyo://anime/${media?.id}`
                                 }
                             }
                         }))
@@ -234,13 +234,13 @@ class AnimeSchedule {
     }
 
     async feedFromManifest(type, schedule = false) {
-      const manifest = await this.manifestChanged()
-      const feed = `${type.toLowerCase()}${!schedule ? '-episode-feed' : '-schedule'}`
-      const cachedSchedule = await cache.cachedEntry(caches.RSS, `${feed}`, true)
-      if (!cachedSchedule || manifest.force || (manifest.changed && (manifest.previousManifest?.[type === 'sub' ? 'subbed' : type === 'dub' ? 'dubbed' : 'hentai']?.[schedule ? 'schedule' : 'episodes'] !== manifest.currentManifest?.[type === 'sub' ? 'subbed' : type === 'dub' ? 'dubbed' : 'hentai']?.[schedule ? 'schedule' : 'episodes']))) {
-        return this.feedChanged(type, schedule, false, manifest)
-      }
-      return cachedSchedule
+        const manifest = await this.manifestChanged()
+        const feed = `${type.toLowerCase()}${!schedule ? '-episode-feed' : '-schedule'}`
+        const cachedSchedule = await cache.cachedEntry(caches.RSS, `${feed}`, true)
+        if (!cachedSchedule || manifest.force || (manifest.changed && (manifest.previousManifest?.[type === 'sub' ? 'subbed' : type === 'dub' ? 'dubbed' : 'hentai']?.[schedule ? 'schedule' : 'episodes'] !== manifest.currentManifest?.[type === 'sub' ? 'subbed' : type === 'dub' ? 'dubbed' : 'hentai']?.[schedule ? 'schedule' : 'episodes']))) {
+            return this.feedChanged(type, schedule, false, manifest)
+        }
+        return cachedSchedule
     }
 
     manifestCache = null
@@ -248,8 +248,8 @@ class AnimeSchedule {
         const now = Date.now()
         if (this.manifestCache && this.manifestCache.expiry > now) return this.manifestCache.promise
         const promise = (async () => {
-          const previousManifest = structuredClone(await this.lastUpdated.value)
-          let lastUpdated
+            const previousManifest = structuredClone(await this.lastUpdated.value)
+            let lastUpdated
             try {
                 lastUpdated = await this.getFeed('last-updated')
             } catch (error) {
@@ -262,7 +262,7 @@ class AnimeSchedule {
                 }
             }
             if (!equal(previousManifest, lastUpdated)) {
-                return { changed: true, previousManifest, currentManifest: lastUpdated  }
+                return { changed: true, previousManifest, currentManifest: lastUpdated }
             }
             return { changed: false }
         })().catch((error) => {
@@ -365,12 +365,12 @@ class AnimeSchedule {
                     ...medias.data.Page,
                     media: [
                         ...items.data.Page.media,
-                        ...res.filter(({id}) => missedIDS.includes(id)).filter(({ id, episode }) => !paginatedLists.some(item => item.id === id && item.episode === episode)).map(({id, episode}) => {
-                        return {
-                            ...Object.fromEntries(medias?.data?.Page?.media.map(media => [media.id, media]))[id],
-                            episode: episode
-                        }
-                    })]
+                        ...res.filter(({ id }) => missedIDS.includes(id)).filter(({ id, episode }) => !paginatedLists.some(item => item.id === id && item.episode === episode)).map(({ id, episode }) => {
+                            return {
+                                ...Object.fromEntries(medias?.data?.Page?.media.map(media => [media.id, media]))[id],
+                                episode: episode
+                            }
+                        })]
                 }
             }
         }
@@ -404,10 +404,10 @@ class AnimeSchedule {
                                 format: media?.format,
                                 dub: type === 'Dub',
                                 click_action: 'PLAY',
-                                button: [{ text: 'View Anime', activation: `shiru://anime/${media?.id}` }],
+                                button: [{ text: 'View Anime', activation: `froyo://anime/${media?.id}` }],
                                 activation: {
-                                  type: 'protocol',
-                                  launch: `shiru://anime/${media?.id}`
+                                    type: 'protocol',
+                                    launch: `froyo://anime/${media?.id}`
                                 }
                             }
                         }))
@@ -428,7 +428,7 @@ class AnimeSchedule {
         return results
     }
 
-    async structureResolveResults (items, type) {
+    async structureResolveResults(items, type) {
         const results = items?.data?.Page?.media?.map((media) => ({ media, episode: media.episode.aired, date: new Date(media.episode.airedAt) }))
         return results.filter(result => result.media && result.media.id).map(async (result) => {
             const res = {
@@ -459,7 +459,7 @@ class AnimeSchedule {
         })
     }
 
-    async fromPending (result, i) {
+    async fromPending(result, i) {
         const array = await result
         return array[i]
     }

@@ -25,8 +25,8 @@ export class Transcoder {
     constructor() {
         this.server = null
         this.port = null
-        this.tempDir = join(app.getPath('temp'), 'shiru-transcode')
-        this.repairDir = join(app.getPath('temp'), 'shiru-repair') // Persistent repair storage
+        this.tempDir = join(app.getPath('temp'), 'froyo-transcode')
+        this.repairDir = join(app.getPath('temp'), 'froyo-repair') // Persistent repair storage
         this.activeTranscodes = new Map() // hash -> ffmpeg command
 
         // Platform-specific encoder selection

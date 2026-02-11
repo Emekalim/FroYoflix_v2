@@ -40,15 +40,15 @@ export class W2GClient extends EventEmitter {
   /** @type {import('simple-store-svelte').Writable<PeerList>} */
   peers = writable({ [this.self.id]: { user: this.self } })
 
-  get inviteLink () {
-    return `shiru://w2g/${this.code}`
+  get inviteLink() {
+    return `froyo://w2g/${this.code}`
   }
 
   /**
    * Should be called when media index changed locally
    * @param {number} index
    */
-  localMediaIndexChanged (index) {
+  localMediaIndexChanged(index) {
     this.index = index
 
     this.mediaIndexChanged(index)
@@ -58,7 +58,7 @@ export class W2GClient extends EventEmitter {
    * Should be called when player state changed locally
    * @param {import('@/routes/w2g/components/events.js').default} state
    */
-  localPlayerStateChanged ({ payload }) {
+  localPlayerStateChanged({ payload }) {
     debug(`localPlayerStateChanged: ${JSON.stringify(payload)}`)
     this.player.payload.paused = payload.paused
     this.player.payload.time = payload.time
@@ -69,7 +69,7 @@ export class W2GClient extends EventEmitter {
   /**
    * @param {string} code lobby code
    */
-  constructor (code) {
+  constructor(code) {
     super()
     this.isHost = !code
 
@@ -83,7 +83,7 @@ export class W2GClient extends EventEmitter {
     this.#p2pt.start()
   }
 
-  magnetLink (magnet) {
+  magnetLink(magnet) {
     debug(`magnetLink: ${this.magnet?.hash} ${magnet.hash}`)
     if (this.magnet?.hash !== magnet.hash) {
       this.magnet = magnet
@@ -93,7 +93,7 @@ export class W2GClient extends EventEmitter {
   }
 
   /** @param {number} index */
-  mediaIndexChanged (index) {
+  mediaIndexChanged(index) {
     debug(`mediaIndexChanged: ${this.index} ${index}`)
     if (this.index !== index) {
       this.index = index
@@ -101,7 +101,7 @@ export class W2GClient extends EventEmitter {
     }
   }
 
-  _playerStateChanged (state) {
+  _playerStateChanged(state) {
     debug(`_playerStateChanged: ${this.player?.paused} ${state?.paused} ${this.player?.time} ${state?.time}`)
     if (!state) return false
     if (this.player.paused !== state.paused || this.player.time !== state.time) {
@@ -110,12 +110,12 @@ export class W2GClient extends EventEmitter {
     }
   }
 
-  playerStateChanged (state) {
+  playerStateChanged(state) {
     debug(`playerStateChanged: ${JSON.stringify(state)}`)
     if (this._playerStateChanged(state)) this.#sendToPeers(new Event('player', state))
   }
 
-  message (message) {
+  message(message) {
     debug(`message: ${message}`)
     this.messages.update(messages => [...messages, ({
       message,
@@ -126,7 +126,7 @@ export class W2GClient extends EventEmitter {
     this.#sendToPeers(new Event('message', message))
   }
 
-  #wireEvents () {
+  #wireEvents() {
     this.#p2pt.on('peerconnect', this.#onPeerconnect.bind(this))
     this.#p2pt.on('msg', this.#onMsg.bind(this))
     this.#p2pt.on('peerclose', this.#onPeerclose.bind(this))
@@ -136,7 +136,7 @@ export class W2GClient extends EventEmitter {
    * @param {import('p2pt').Peer} peer
    * @param {import('./events.js').default} event
    */
-  #sendEvent (peer, event) {
+  #sendEvent(peer, event) {
     debug(`#sendEvent: ${peer.id} ${JSON.stringify(event)}`)
     this.#p2pt?.send(peer, JSON.stringify(event))
   }
@@ -145,13 +145,13 @@ export class W2GClient extends EventEmitter {
    * Should be called only on 'peerconnect'
    * @param {import('p2pt').Peer} peer
    */
-  #sendInitialSessionState (peer) {
+  #sendInitialSessionState(peer) {
     this.#sendEvent(peer, new Event('magnet', this.magnet))
     this.#sendEvent(peer, new Event('index', this.index))
     this.#sendEvent(peer, new Event('player', this.player))
   }
 
-  async #onPeerconnect (peer) {
+  async #onPeerconnect(peer) {
     debug(`#onPeerconnect: ${peer.id}`)
     this.#sendEvent(peer, new Event('init', this.self))
 
@@ -162,7 +162,7 @@ export class W2GClient extends EventEmitter {
    * @param {import('p2pt').Peer} peer
    * @param {Event} data
    */
-  #onMsg (peer, data) {
+  #onMsg(peer, data) {
     debug(`#onMsg: ${peer.id} ${JSON.stringify(data)}`)
     data = typeof data === 'string' ? JSON.parse(data) : data
 
@@ -200,7 +200,7 @@ export class W2GClient extends EventEmitter {
         if (this._playerStateChanged(data.payload)) this.emit('player', data.payload)
         break
       }
-      case EventTypes.MessageEvent:{
+      case EventTypes.MessageEvent: {
         this.messages.update(messages => [...messages, ({ message: data.payload, user: this.peers.value[peer.id].user, type: 'incoming', date: new Date() })])
         break
       }
@@ -209,7 +209,7 @@ export class W2GClient extends EventEmitter {
     }
   }
 
-  #onPeerclose (peer) {
+  #onPeerclose(peer) {
     debug(`#onPeerclose: ${peer.id}`)
     this.peers.update(peers => {
       delete peers[peer.id]
@@ -218,14 +218,14 @@ export class W2GClient extends EventEmitter {
   }
 
   /** @param {import('./events.js').default} event */
-  #sendToPeers (event) {
+  #sendToPeers(event) {
     if (!this.#p2pt) return
     for (const { peer } of Object.values(this.peers.value)) {
       if (peer) this.#sendEvent(peer, event)
     }
   }
 
-  destroy () {
+  destroy() {
     debug('destroy')
     this.#p2pt.destroy()
     this.removeAllListeners()

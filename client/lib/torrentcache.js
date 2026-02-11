@@ -10,7 +10,7 @@ export default class Cache {
    * @param {string} torrentPath - Base path where the cache folder will be created, this SHOULD be where WebTorrent is storing its files!
    */
   constructor(torrentPath) {
-    const targetPath = join(torrentPath, 'shiru-cache')
+    const targetPath = join(torrentPath, 'froyo-cache')
     this.cacheFolder = mkdir(targetPath, { recursive: true }).then(() => targetPath)
   }
 

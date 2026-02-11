@@ -2059,12 +2059,12 @@
       } else {
         activity.buttons = [
           {
-            label: "Watch on Shiru",
-            url: `shiru://anime/${np.media?.id}`,
+            label: "Watch on FroYo",
+            url: `froyo://anime/${np.media?.id}`,
           },
           {
-            label: "Download Shiru",
-            url: "https://github.com/RockinChaos/Shiru/releases/latest",
+            label: "Download FroYo",
+            url: "https://github.com/Emekalim/FroYoflix_v2/releases/latest",
           },
         ];
       }
@@ -2075,14 +2075,14 @@
         state: "Exploring the anime library...",
         assets: {
           large_image: "icon",
-          large_text: "https://github.com/RockinChaos/Shiru",
+          large_text: "https://github.com/Emekalim/FroYoflix_v2",
           small_image: "searching",
-          small_text: "Browsing anime on Shiru",
+          small_text: "Browsing anime on FroYo",
         },
         buttons: [
           {
-            label: "Download Shiru",
-            url: "https://github.com/RockinChaos/Shiru/releases/latest",
+            label: "Download FroYo",
+            url: "https://github.com/Emekalim/FroYoflix_v2/releases/latest",
           },
         ],
         instance: true,
