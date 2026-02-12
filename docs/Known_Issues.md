@@ -81,3 +81,41 @@ If a video fails to play (e.g., transcoding error or network issue), the player 
 -   Explicitly destroying `hls` and removing `video.src` at start.
 -   Preventing ghost state by nullifying variables on error.
 
+### 2. Genre Filter Mismatch (TMDB)
+-   **Issue**: Movies and TV Shows appear in genre filters (e.g., "Sports", "Mecha", "Sci-Fi") but do not have that specific genre tag listed on their details page.
+-   **Detailed Analysis**:
+    1.  **Genre Source**: The application uses a unified genre list derived from **AniList** (e.g., "Action", "Adventure", "Sci-Fi", "Romance").
+    2.  **TMDB Discrepancy**: TMDB uses different genre definitions, particularly for **TV Shows**:
+        -   **AniList**: Separates "Action" and "Adventure".
+        -   **TMDB (TV)**: Combines them into "Action & Adventure".
+        -   **AniList**: Uses "Sci-Fi".
+        -   **TMDB (TV)**: Uses "Sci-Fi & Fantasy".
+        -   **AniList**: Uses "Romance".
+        -   **TMDB**: Has "Romance", but it may not be populated for all shows that AniList considers "Romance".
+    3.  **Mapping Failure**: When a user selects "Sci-Fi", `sections.js` attempts to map this to a TMDB Genre ID. If it logic expects an exact string match ("Sci-Fi" != "Sci-Fi & Fantasy"), the mapping fails and returns `undefined`.
+    4.  **API Fallback Behavior**: When `sections.js` sends the request to TMDB, if the genre ID list is empty (due to failed mapping), it sends an **unfiltered discover request**:
+        -   `https://api.themoviedb.org/3/discover/tv?query=...` (without `with_genres`)
+    5.  **Result**: TMDB returns the most popular/trending shows *overall* (or matching the search text), ignoring the intended genre filter entirely.
+-   **Impact**: Users searching for specific genres receive broad, irrelevant results. For example, selecting "Mecha" (which doesn't exist in TMDB) returns generic popular movies like "The Godfather" or "Barbie".
+-   **Fix Strategy (Proposed)**:
+    -   **Hybrid Genre List**: Create a unified genre list that combines TMDB and AniList genres.
+    -   **Visual Demarcation**: In the UI dropdown, separate genres into categories (e.g., "Common", "Anime Only", "Live Action Only") or use icons to indicate availability.
+    -   **Strict Filtering**:
+        -   If a user selects an **Anime-only genre** (e.g., "Mecha") and filters for **Movies** (TMDB), the result should be **empty** (0 results) rather than falling back to trending.
+        -   If a user selects a **Mapped genre** (e.g., "Sci-Fi"), the backend must translate it to the correct ID for each provider (e.g., `Sci-Fi` -> `10765` for TMDB TV, `878` for TMDB Movie).
+    -   **Implementation**: 
+        -   Update `genreList` in `anime.js` to include all unique genres.
+        -   Update `sections.js` to handle the mapping and strict fallback (return `[]` if no valid ID found).
+
+
+
+
+### 3. Torrent Modal Inaccurate Metadata
+- **Issue**: The Torrent Modal displays search results with inaccurate or missing file size and upload date information, sometimes showing "0 B" or the current date/time for old torrents.
+- **Detailed Analysis**:
+    1. **Source Dependency**: The modal displays metadata (Size, Date) exactly as returned by the external extension/indexer. If the source API returns null/zero for size or date, the UI reflects this (or defaults Date to "Now").
+    2. **Scraping Limitations**: The client performs a `scrape` operation on the trackers (`updatePeerCounts` in `handler.js`). However, the BitTorrent scrape protocol **only** returns `complete` (seeders), `incomplete` (leechers), and `downloaded` counts. It **does not** return file names, sizes, or upload dates.
+    3. **Metadata Fetching**: To get accurate metadata for a magnet link (which many results are), the client would need to fully connect to peers and fetch the `.torrent` metadata info-dict. Doing this for every search result (10-20 items) simultaneously would be extremely resource-intensive and slow, potentially choking the user's connection.
+- **Impact**: Users may see "0 B" size or incorrect upload dates, making it difficult to judge the quality or age of a release without attempting to download it.
+- **Current Status**: **LIMITATION**. This is a technical limitation of using magnet links without a central metadata cache, or relies on extensions parsing this data correctly.
+

@@ -36,6 +36,15 @@ This document tracks major feature implementations, architectural improvements, 
     -   **TMDB Genre Caching:** `sections.js` caches genre lists per session, reducing API calls by ~99%.
     -   **Format Dropdown:** Refactored search routing to support single or multi-format queries efficiently.
 
+### 5. Rebranding to FroYo
+**Goal:** Transition from "Shiru" to "FroYo" for consistent branding.
+-   **Status:** **Fully Implemented**.
+-   **Key Implementations:**
+    -   **Core Configs:** Updated `package.json`, `capacitor.config.js`, and electron configs.
+    -   **Android Native:** Migrated `watch/shiru` directory structure to `watch/froyo`, updated `AndroidManifest.xml`, `strings.xml`, `build.gradle`, and `NativeBridge.java`.
+    -   **Refactored Deep Links:** Converted all `shiru://` protocol handlers and links to `froyo://`.
+    -   **UI Polish:** Updated all visible text, links, and the Update Modal to reflect the new brand.
+
 ---
 
 ## 🚧 Partial / In-Progress
