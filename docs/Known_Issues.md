@@ -57,6 +57,95 @@ VLC Media Player's resilience comes from its unique architecture around **libavc
     -   Optimizing HandBrake presets (e.g., `Super Fast` or `Ultrafast`).
     -   Enabling hardware acceleration for the repair step itself.
 
+
+### 2. Untrack Deletes Files
+> **Status**: **RESOLVED**
+> **Resolution**: Separated "Untrack" (safe) and "Delete" (destructive) actions.
+> **Implementation**: Updated backend to support `deleteData` flag; added explicit "Delete" button in UI.
+
+**Issue Description:**
+The "Untrack" option in the torrent modal previously removed the torrent from the client **and** deleted the downloaded files from the disk without warning.
+
+**Technical Root Cause:**
+The `untrack` function unconditionally sent a message to the torrent worker which called `remove` with `{ destroyStore: true }`. This was a legacy default behavior that equated "untracking" with "complete removal".
+
+**Implemented Solution:**
+1.  **Backend**: Updated `untrack(hash, deleteData)` to accept a boolean flag. The worker now uses this flag to determine whether to pass `destroyStore: true` (delete files) or `destroyStore: false` (keep files).
+2.  **Frontend**:
+    -   **Untrack**: Now calls `untrack(hash, false)`. It removes the torrent from the client list but **preserves** user data.
+    -   **Delete**: New red button added. Calls `untrack(hash, true)` to explicitly delete the torrent and its data.
+
+
+### 3. Torrent Modal Inaccurate Metadata
+> **Status**: **RESOLVED**
+> **Resolution**: Fixed string size parsing and normalized date handling in `handler.js`.
+> **Implementation**: Updated `normalizeResult` to correctly parse string-based file sizes and invalid date formats.
+
+**Issue Description:**
+The Torrent Modal displayed search results with "0 B" size and incorrect dates because the application failed to parse specific metadata formats returned by extensions.
+
+**Technical Root Cause:**
+The `normalizeResult` function in `handler.js` failed to parse string-based size fields (e.g., "1.81 GiB") and non-standard date strings, causing them to default to zero or the current time.
+
+**Implemented Solution:**
+Updated the result normalization logic to:
+1.  **Sizes**: Detect and parse string-based size fields into bytes.
+2.  **Dates**: Parse various date string formats and handle edge cases (like year 2001 defaults) to ensure accurate upload dates are displayed.
+
+### 4. Persistent Zombie FFmpeg Processes
+> **Status**: **RESOLVED**
+> **Resolution**: implemented Explicit Lifecycle Management.
+> **Implementation**: 
+> 1.  **Backend**: `transcoder.js` now includes a `safeCleanup()` method to kill zombie processes from previous runs/versions on startup. Added `DELETE /stop` endpoint.
+> 2.  **Frontend**: `PlayerPage` now calls `/stop` when switching videos, but *allows* background transcoding when navigating away (removed `onDestroy` kill).
+> 3.  **Resumption**: Added safety check to restart transcoding if a playlist exists but the process is dead (stalled state).
+
+**Issue Description:**
+`ffmpeg` processes spawned for HLS transcoding persist even after the user quits the app or previous versions left "zombie" processes (e.g., from legacy "Shiru" builds).
+
+**Technical Root Cause:**
+Lack of explicit process termination signals from the frontend and no startup cleanup logic to handle orphaned processes from crashed/force-quit sessions.
+
+---
+
+### 5. HandBrake Repair Triggered by Stop (False Positive)
+> **Status**: **RESOLVED**
+> **Resolution**: Implemented "Intentional Stop" State Tracking.
+> **Implementation**: Updated `transcoder.js` to track explicit stop requests and ignore resulting `SIGKILL` errors.
+
+**Issue Description:**
+Stopping playback or closing the application inadvertently triggered the "Smart Fallback" `HandBrakeCLI` repair mechanism, causing high CPU usage on a healthy file.
+
+**Symptoms:**
+-   User navigating away from a video or closing the app caused a background `HandBrakeCLI` process to start.
+-   Logs showed `ffmpeg was killed with signal SIGKILL` followed by `Critical failure detected. Initiating Smart Fallback repair...`.
+
+**Technical Root Cause:**
+The `error` event handler in `transcoder.js` was designed to catch *decoder crashes* which often manifest as the process killing itself (or being killed by the OS) with `SIGKILL`. The handler did not distinguish between an **unintentional crash** (which needs repair) and an **intentional stop** (triggered by `stop()` or the `/stop` endpoint) which also uses `SIGKILL` for immediate termination.
+
+**Implemented Solution:**
+1.  **State Tracking**: Introduced `this.intentionalStops = new Set()` in the `Transcoder` class.
+2.  **Flagging**: When `stop()` or `DELETE /stop` is called, the specific file hash is added to `intentionalStops` *before* sending the kill signal.
+3.  **Conditional Handling**: The `error` handler now checks `if (this.intentionalStops.has(hash))` before triggering the repair logic. If found, the error is ignored, and the hash is removed from the set.
+
+### 6. Genre Filter Mismatch (TMDB)
+> **Status**: **RESOLVED**
+> **Resolution**: Implemented Strict Filtering & Advanced Genre Mapping.
+> **Implementation**: Updated [sections.js](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/common/modules/sections.js) to map AniList genres to TMDB equivalents (e.g., Action -> Action & Adventure) and enforcing strict filtering on API and client side.
+
+**Issue Description:**
+Movies and TV Shows appeared in genre filters (e.g., "Sports", "Mecha", "Sci-Fi") but did not have that specific genre tag listed on their details page. This was due to:
+1.  **Genre Mapping Gaps**: TMDB uses combined genres for TV (e.g., "Action & Adventure") while AniList uses separate ones.
+2.  **Fallback Behavior**: When no matching genre ID was found (e.g., "Mecha"), the API request fell back to "Trending", returning irrelevant popular shows.
+
+**Implemented Solution:**
+1.  **Strict Filtering**: If a user selects a genre and no matching TMDB ID exists, the system now returns **0 results** instead of falling back to trending.
+2.  **Smart Mapping**:
+    -   Mapped `Action`, `Adventure` -> `Action & Adventure` (TV)
+    -   Mapped `Sci-Fi`, `Fantasy` -> `Sci-Fi & Fantasy` (TV)
+    -   Mapped `War` -> `War & Politics` (TV)
+3.  **Client-Side Parity**: Updated client-side filtering to respect these mappings even when using the search endpoint.
+
 ## Known Issues
 ### 1. Player State Glitch on Error
 > **Status**: **MONITORING**
@@ -81,41 +170,14 @@ If a video fails to play (e.g., transcoding error or network issue), the player 
 -   Explicitly destroying `hls` and removing `video.src` at start.
 -   Preventing ghost state by nullifying variables on error.
 
-### 2. Genre Filter Mismatch (TMDB)
--   **Issue**: Movies and TV Shows appear in genre filters (e.g., "Sports", "Mecha", "Sci-Fi") but do not have that specific genre tag listed on their details page.
--   **Detailed Analysis**:
-    1.  **Genre Source**: The application uses a unified genre list derived from **AniList** (e.g., "Action", "Adventure", "Sci-Fi", "Romance").
-    2.  **TMDB Discrepancy**: TMDB uses different genre definitions, particularly for **TV Shows**:
-        -   **AniList**: Separates "Action" and "Adventure".
-        -   **TMDB (TV)**: Combines them into "Action & Adventure".
-        -   **AniList**: Uses "Sci-Fi".
-        -   **TMDB (TV)**: Uses "Sci-Fi & Fantasy".
-        -   **AniList**: Uses "Romance".
-        -   **TMDB**: Has "Romance", but it may not be populated for all shows that AniList considers "Romance".
-    3.  **Mapping Failure**: When a user selects "Sci-Fi", `sections.js` attempts to map this to a TMDB Genre ID. If it logic expects an exact string match ("Sci-Fi" != "Sci-Fi & Fantasy"), the mapping fails and returns `undefined`.
-    4.  **API Fallback Behavior**: When `sections.js` sends the request to TMDB, if the genre ID list is empty (due to failed mapping), it sends an **unfiltered discover request**:
-        -   `https://api.themoviedb.org/3/discover/tv?query=...` (without `with_genres`)
-    5.  **Result**: TMDB returns the most popular/trending shows *overall* (or matching the search text), ignoring the intended genre filter entirely.
--   **Impact**: Users searching for specific genres receive broad, irrelevant results. For example, selecting "Mecha" (which doesn't exist in TMDB) returns generic popular movies like "The Godfather" or "Barbie".
--   **Fix Strategy (Proposed)**:
-    -   **Hybrid Genre List**: Create a unified genre list that combines TMDB and AniList genres.
-    -   **Visual Demarcation**: In the UI dropdown, separate genres into categories (e.g., "Common", "Anime Only", "Live Action Only") or use icons to indicate availability.
-    -   **Strict Filtering**:
-        -   If a user selects an **Anime-only genre** (e.g., "Mecha") and filters for **Movies** (TMDB), the result should be **empty** (0 results) rather than falling back to trending.
-        -   If a user selects a **Mapped genre** (e.g., "Sci-Fi"), the backend must translate it to the correct ID for each provider (e.g., `Sci-Fi` -> `10765` for TMDB TV, `878` for TMDB Movie).
-    -   **Implementation**: 
-        -   Update `genreList` in `anime.js` to include all unique genres.
-        -   Update `sections.js` to handle the mapping and strict fallback (return `[]` if no valid ID found).
 
 
 
 
-### 3. Torrent Modal Inaccurate Metadata
-- **Issue**: The Torrent Modal displays search results with inaccurate or missing file size and upload date information, sometimes showing "0 B" or the current date/time for old torrents.
-- **Detailed Analysis**:
-    1. **Source Dependency**: The modal displays metadata (Size, Date) exactly as returned by the external extension/indexer. If the source API returns null/zero for size or date, the UI reflects this (or defaults Date to "Now").
-    2. **Scraping Limitations**: The client performs a `scrape` operation on the trackers (`updatePeerCounts` in `handler.js`). However, the BitTorrent scrape protocol **only** returns `complete` (seeders), `incomplete` (leechers), and `downloaded` counts. It **does not** return file names, sizes, or upload dates.
-    3. **Metadata Fetching**: To get accurate metadata for a magnet link (which many results are), the client would need to fully connect to peers and fetch the `.torrent` metadata info-dict. Doing this for every search result (10-20 items) simultaneously would be extremely resource-intensive and slow, potentially choking the user's connection.
-- **Impact**: Users may see "0 B" size or incorrect upload dates, making it difficult to judge the quality or age of a release without attempting to download it.
-- **Current Status**: **LIMITATION**. This is a technical limitation of using magnet links without a central metadata cache, or relies on extensions parsing this data correctly.
+
+
+
+
+
+
 

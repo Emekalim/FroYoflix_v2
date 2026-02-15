@@ -143,6 +143,10 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "node_modules/ffmpeg-static/ffmpeg",
+        "to": "bin/ffmpeg"
       }
     ]
   }
