@@ -9,7 +9,7 @@ import AbstractSource from './abstract.js'
  *
  * **Installation:**
  * - Local: Direct path to index.json
- * - Remote: `gh:RockinChaos/FroYo/extensions`
+ * - Remote: `gh:Emekalim/FroYo/extensions`
  *
  * **Remote URL formats:**
  * - GitHub: `gh:username/repo/path`

@@ -1,7 +1,7 @@
 name: Feature Request
 description: Suggest a new idea for this resource.
 labels: ["enhancement"]
-assignees: RockinChaos
+assignees: Emekalim
 body:
   - type: checkboxes
     attributes:

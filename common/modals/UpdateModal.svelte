@@ -190,7 +190,7 @@
             Consider <span
               class="custom-link"
               use:click={() =>
-                IPC.emit("open", "https://github.com/sponsors/RockinChaos")}
+                IPC.emit("open", "https://github.com/sponsors/Emekalim")}
               >donating on GitHub</span
             > to help support future FroYo development.
           </div>

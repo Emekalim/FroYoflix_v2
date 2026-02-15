@@ -1,7 +1,7 @@
 name: Assistance Request
 description: Ask a question or seek help with this resource.
 labels: ["question"]
-assignees: RockinChaos
+assignees: Emekalim
 body:
   - type: dropdown
     id: operating_system

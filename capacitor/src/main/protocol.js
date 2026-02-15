@@ -15,7 +15,7 @@ export default class Protocol {
     search: id => this.play(id),
     w2g: link => IPC.emit('w2glink', link),
     schedule: () => IPC.emit('schedule'),
-    donate: () => Browser.open({url: 'https://github.com/sponsors/RockinChaos/'}),
+    donate: () => Browser.open({url: 'https://github.com/sponsors/Emekalim/'}),
     update: () => IPC.emit('quit-and-install'),
     changelog: () => Browser.open({url: 'https://github.com/Emekalim/FroYoflix_v2/releases/latest'}),
     show: () => IPC.emit('window-show')

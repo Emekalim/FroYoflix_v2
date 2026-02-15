@@ -245,7 +245,7 @@
     {#if $settings.donate && !SUPPORTS.isAndroid}
       <SidebarLink
         click={() => {
-          IPC.emit("open", "https://github.com/sponsors/RockinChaos/");
+          IPC.emit("open", "https://github.com/sponsors/Emekalim/");
         }}
         icon="favorite"
         text="Support This App"
