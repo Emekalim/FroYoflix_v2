@@ -121,6 +121,7 @@ flowchart TD
     PL["Platform Layer\nElectron: FFmpeg transcoding · electron-builder · filesystem\nCapacitor: Android foreground service · file picker · ADB"]
 
     UI --> BL
+    UI -->|"via torrent.js"| TC
     BL --> EW
     BL --> TC
     TC --> PL
@@ -251,6 +252,7 @@ flowchart TD
     F --> I["Webpack dev server\n+ Electron launches\nwith hot reload"]
     G --> J["Watches and rebuilds\nweb bundle only"]
     H --> K["electron-builder packages\napp into dist/"]
+    K --> PUB["pnpm publish\nPublish release to GitHub"]
 ```
 
 ```bash
@@ -262,6 +264,15 @@ pnpm start
 
 # Watch web assets only (run alongside pnpm electron:start)
 pnpm web:watch
+
+# Production web build only
+pnpm web:build
+
+# Run Electron without rebuilding web (pair with pnpm web:watch)
+pnpm electron:start
+
+# electron-builder only (skips web rebuild)
+pnpm electron:build
 
 # Production release build
 pnpm build
@@ -390,6 +401,7 @@ Changing these affects 45–67 other files. Use `roam preflight <name>` before e
 | `common/modules/util.js` | 55 | General utilities |
 | `common/modules/settings.js` | 47 | Reactive settings store |
 | `common/modules/anilist.js` | 45 | AniList GraphQL client |
+| `common/modules/providers/tmdb/mapper.js` | — | TMDB data mapping |
 | `common/components/CustomDropdown.svelte` | 61 | Core UI dropdown |
 
 ---
