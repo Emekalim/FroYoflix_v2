@@ -16,7 +16,7 @@ This document tracks major feature implementations, architectural improvements, 
 
 ### 2. Robust HLS Playback & Smart Fallback
 **Goal:** Prevent indefinite buffering/crashes on corrupted HEVC files.
--   **Plan:** [Smart Fallback Implementation Plan](../.gemini/antigravity/brain/c1a3742c-7f4d-45a9-94ca-baa87f1c35d0/implementation_plan.md)
+-   **Plan:** Smart Fallback Implementation Plan
 -   **Status:** **Fully Implemented**.
 -   **Deviations:** Added active `stderr` monitoring in `transcoder.js` to detect "Error submitting packet to decoder" hangs and force-kill (`SIGKILL`) the process, triggering the `HandBrakeCLI` repair pipeline.
 
@@ -66,7 +66,7 @@ This document tracks major feature implementations, architectural improvements, 
 -   **Status:** **In Progress**.
 -   **Current State:**
     -   ❌ **Static:** Recommendations are currently static images without click handlers.
-    -   **Plan:** [Implementation Plan](../.gemini/antigravity/brain/916d70f9-5491-42de-bd63-b96294d40c91/implementation_plan.md)
+    -   **Plan:** Implementation Plan
     -   **Implementation:**
         -   Update `tmdb-api.js` to return formatted `Media` objects.
         -   Update `DetailsModal.svelte` to use `SmallCard` for TMDB items.
