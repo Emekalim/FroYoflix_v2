@@ -11,6 +11,66 @@ env:
   PNPM_VERSION: '10.15.1'
 
 jobs:
+#  release-windows:
+#    runs-on: windows-latest
+#
+#    steps:
+#      - name: Check out Git repository
+#        uses: actions/checkout@v3
+#
+#      - name: Setup PNPM
+#        uses: pnpm/action-setup@v4
+#        with:
+#          version: ${{ env.PNPM_VERSION }}
+#
+#      - name: Setup Node.js
+#        uses: actions/setup-node@v4
+#        with:
+#          node-version: ${{ env.NODE_VERSION }}
+#          cache: 'pnpm'
+#
+#      - name: Install dependencies
+#        run: |
+#          cd electron
+#          pnpm install --frozen-lockfile
+#
+#      - name: Build and Publish
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#        run: |
+#          cd electron
+#          pnpm run publish
+#
+#  release-linux:
+#    runs-on: ubuntu-latest
+#
+#    steps:
+#      - name: Check out Git repository
+#        uses: actions/checkout@v3
+#
+#      - name: Setup PNPM
+#        uses: pnpm/action-setup@v4
+#        with:
+#          version: ${{ env.PNPM_VERSION }}
+#
+#      - name: Setup Node.js
+#        uses: actions/setup-node@v4
+#        with:
+#          node-version: ${{ env.NODE_VERSION }}
+#          cache: 'pnpm'
+#
+#      - name: Install dependencies
+#        run: |
+#          cd electron
+#          pnpm install --frozen-lockfile
+#
+#      - name: Build and Publish
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#        run: |
+#          cd electron
+#          pnpm run publish
+
   release-macos:
     runs-on: macos-latest
 
