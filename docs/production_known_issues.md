@@ -1,5 +1,12 @@
 # Production Known Issues & Roadmap
 
+> **Scope:** Issues that only manifest in production builds (after `pnpm build` or in the packaged Electron app).
+> For general development bugs, use `Known_Issues.md`.
+>
+> **Status tags:** `RESOLVED` · `IN PROGRESS` · `OPEN` · `INTENTIONAL BEHAVIOR`
+>
+> **Adding an entry:** Include error messages verbatim, root cause, and resolution plan or steps.
+
 This document specifically tracks technical issues that only manifest in the **Production Build** (e.g., after `npm run build` or in the packaged application), along with their root causes and resolution roadmaps.
 
 ## 🔴 Critical Blockers (Prevent App Launch)

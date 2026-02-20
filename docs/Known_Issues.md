@@ -1,5 +1,12 @@
 # Known & Resolved Issues
 
+> **Scope:** Development-time issues — bugs found during local development, test failures, and non-critical behavioral quirks.
+> Add new issues here. For issues that only appear in production builds (packaged app), use `production_known_issues.md`.
+>
+> **Status tags:** `RESOLVED` · `IN PROGRESS` · `MONITORING` · `BLOCKED`
+>
+> **Adding an entry:** Include file paths and line numbers, the root cause, and any failed approaches tried.
+
 This document tracks technical hurdles, their root causes, and implemented solutions.
 
 ## ✅ Resolved Issues
