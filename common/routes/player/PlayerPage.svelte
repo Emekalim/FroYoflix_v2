@@ -12,7 +12,7 @@
   import MediaResolver from "@/modules/resolver/MediaResolver.js";
   import { durationMap, getMediaMaxEp } from "@/modules/anime/anime.js";
   import { writable } from "simple-store-svelte";
-  import { createEventDispatcher, onDestroy } from "svelte";
+  import { createEventDispatcher, tick } from "svelte";
   import Subtitles from "@/modules/subtitles.js";
   import {
     toTS,
@@ -399,6 +399,11 @@
   }
 
   async function setCurrent(file, launchExternal = false) {
+    if (!video) await tick();
+    if (!video) {
+      debug("Video element not found in setCurrent");
+      return;
+    }
     if (!externalPlayback) {
       try {
         // CRITICAL CLEANUP: Destroy previous HLS and detach media

@@ -10,7 +10,11 @@
   import { episodesList } from "@/modules/episodes.js";
   import { settings } from "@/modules/settings.js";
   import { page } from "@/modules/navigation.js";
-  import { getKitsuMappings, hasZeroEpisode } from "@/modules/anime/anime.js";
+  import {
+    getKitsuMappings,
+    hasZeroEpisode,
+    getAniMappings,
+  } from "@/modules/anime/anime.js";
   import {
     stagingTorrents,
     seedingTorrents,
