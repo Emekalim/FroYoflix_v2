@@ -1,5 +1,12 @@
 # Known & Resolved Issues
 
+> **Scope:** Development-time issues — bugs found during local development, test failures, and non-critical behavioral quirks.
+> Add new issues here. For issues that only appear in production builds (packaged app), use `production_known_issues.md`.
+>
+> **Status tags:** `RESOLVED` · `IN PROGRESS` · `MONITORING` · `BLOCKED`
+>
+> **Adding an entry:** Include file paths and line numbers, the root cause, and any failed approaches tried.
+
 This document tracks technical hurdles, their root causes, and implemented solutions.
 
 ## ✅ Resolved Issues
@@ -7,7 +14,7 @@ This document tracks technical hurdles, their root causes, and implemented solut
 ### 1. HEVC Playback & Transcoding Stalls
 > **Status**: **RESOLVED**
 > **Resolution**: Implemented Smart Fallback with HandBrake repair + Persistent Storage.
-> **Implementation**: See [Improvements Tracker - Item 2 & 4](../.gemini/antigravity/brain/c1a3742c-7f4d-45a9-94ca-baa87f1c35d0/improvements_tracker.md)
+> **Implementation**: See [Improvements Tracker - Item 2 & 4](./Improvements_Tracker.md)
 
 **Issue Description:**
 Video playback buffers indefinitely or freezes at a specific timestamp (approx. 30:00) for certain HEVC (H.265) encoded files. Transcoding logs reveal critical decoder errors at this point.
@@ -42,7 +49,7 @@ VLC Media Player's resilience comes from its unique architecture around **libavc
 -   **Software Reality**: However, since our *software* decoding attempt (`libx264` + standard `hevc` decoder) also failed with `Invalid data` on macOS, this indicates the **bitstream corruption is severe enough to crash the standard cross-platform FFmpeg decoder**. Therefore, this file would likely fail on Windows and Linux FFmpeg builds as well.
 
 **Implemented Solution:**
-**Smart Fallback** to `HandBrakeCLI` has been implemented in [transcoder.js](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/electron/src/main/transcoder.js). It detects the decoder crash, kills the FFmpeg process, and triggers a repair.
+**Smart Fallback** to `HandBrakeCLI` has been implemented in [transcoder.js](../electron/src/main/transcoder.js). It detects the decoder crash, kills the FFmpeg process, and triggers a repair.
 
 **Update (2026-02-11): Repair Loop & Performance**
 > **Status**: **RESOLVED**
@@ -131,7 +138,7 @@ The `error` event handler in `transcoder.js` was designed to catch *decoder cras
 ### 6. Genre Filter Mismatch (TMDB)
 > **Status**: **RESOLVED**
 > **Resolution**: Implemented Strict Filtering & Advanced Genre Mapping.
-> **Implementation**: Updated [sections.js](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/common/modules/sections.js) to map AniList genres to TMDB equivalents (e.g., Action -> Action & Adventure) and enforcing strict filtering on API and client side.
+> **Implementation**: Updated [sections.js](../common/modules/sections.js) to map AniList genres to TMDB equivalents (e.g., Action -> Action & Adventure) and enforcing strict filtering on API and client side.
 
 **Issue Description:**
 Movies and TV Shows appeared in genre filters (e.g., "Sports", "Mecha", "Sci-Fi") but did not have that specific genre tag listed on their details page. This was due to:
