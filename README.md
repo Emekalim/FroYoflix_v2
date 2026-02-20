@@ -29,23 +29,20 @@
 
 ---
 
-https://github.com/user-attachments/assets/3ff100f0-e008-4ff5-88f5-ad4290863f96
+<img src=".github/docs/assets/app.webp" alt="FroYo App" width="100%">
 
 ---
 
 ## Feature Overview
 
-| Category | Highlights |
-|----------|-----------|
-| Anime | AniList and MyAnimeList sync, episode auto-detection, dub/sub notifications, trailers, ratings |
-| Multi-Media | TV shows, movies, and anime — unified search and library |
-| Streaming | Real-time playback from your own files — no buffering wait |
-| Extensions | Plugin system for custom sources (`gh:`, `npm:`, HTTP, local) |
-| Video Player | HLS + smart transcoding fallback, ASS/SSA/VTT subtitles, Picture-in-Picture, Discord RPC |
-| Schedule | Upcoming episode calendar for dub and sub releases |
-| Watch Together | Synchronized playback with others |
-| Desktop | Windows and Linux (Electron) |
-| Mobile | Android (Capacitor) |
+- 📺 **Stream torrents** while downloading via WebTorrent + HLS
+- 🎬 **Smart transcoding** with FFmpeg and HandBrake repair fallback for corrupted files
+- 🔍 **Multi-provider search** across AniList, TMDB, MAL, and Trakt
+- 📅 **Schedule & tracking** — AniList + MAL sync, episode progress, airing calendar
+- 🧩 **Extension system** — install torrent source plugins from GitHub or npm at runtime
+- 🤝 **Watch Together** — synchronized playback across devices
+- 🖥️ **Cross-platform** — Windows, Linux (Electron) + Android (Capacitor)
+- ⚡ **Performance** — IndexedDB caching, banner rotation, reactive UI
 
 <details>
 <summary><b>Keyboard Shortcuts</b></summary>
