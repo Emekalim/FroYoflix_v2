@@ -5,9 +5,9 @@
     genreIcons,
     getEpisodeMetadataForMedia,
     getKitsuMappings,
-    getMediaMaxEp,
-    playMedia,
   } from "@/modules/anime/anime.js";
+  import { getMediaMaxEp } from "@/modules/anime/AnimeService.js";
+  import { playMedia } from "@/modules/player/PlayerService.js";
   import { openTorrentModal } from "@/modals/torrent/TorrentModal.svelte";
   import { copyToClipboard } from "@/modules/clipboard.js";
   import { settings } from "@/modules/settings.js";
