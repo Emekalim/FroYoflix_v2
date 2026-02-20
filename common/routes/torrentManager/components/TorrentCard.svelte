@@ -268,11 +268,23 @@
         aria-label="Untrack Torrent"
         title="Untrack Torrent"
         use:click={() => {
-          untrack(infoHash);
+          untrack(infoHash, false);
           toggleDropdown();
         }}
       >
         Untrack
+      </div>
+      <div
+        role="button"
+        class="pointer d-flex align-items-center justify-content-center font-size-16 rounded option details py-5 px-10 text-danger"
+        aria-label="Delete Torrent"
+        title="Delete Torrent"
+        use:click={() => {
+          untrack(infoHash, true);
+          toggleDropdown();
+        }}
+      >
+        Delete
       </div>
       <div
         role="button"
@@ -415,5 +427,8 @@
   .option:hover {
     background-color: var(--dark-color-light);
     border: 0.1rem solid var(--highlight-color) !important;
+  }
+  .text-danger {
+    color: var(--danger-color, #ff4d4d) !important;
   }
 </style>

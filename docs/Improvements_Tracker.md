@@ -5,7 +5,7 @@ This document tracks major feature implementations, architectural improvements, 
 ## ✅ Completed Improvements
 
 ### 1. Multi-Media Support (Media Extension Overhaul)
-**Goal:** Extend Shiru to support TV Shows, Movies, and mixed media types while preserving Anime functionality.
+**Goal:** Extend FroYo to support TV Shows, Movies, and mixed media types while preserving Anime functionality.
 -   **Core Plans:** [Media Extension Plan](MEDIA_EXTENSION_PLAN.md), [TMDB Analysis](TMDB_COMPATIBILITY_ANALYSIS.md)
 -   **Status:** **Phases 1-4 Complete**.
 -   **Key Implementations:**
@@ -16,7 +16,7 @@ This document tracks major feature implementations, architectural improvements, 
 
 ### 2. Robust HLS Playback & Smart Fallback
 **Goal:** Prevent indefinite buffering/crashes on corrupted HEVC files.
--   **Plan:** [Smart Fallback Implementation Plan](../.gemini/antigravity/brain/c1a3742c-7f4d-45a9-94ca-baa87f1c35d0/implementation_plan.md)
+-   **Plan:** Smart Fallback Implementation Plan
 -   **Status:** **Fully Implemented**.
 -   **Deviations:** Added active `stderr` monitoring in `transcoder.js` to detect "Error submitting packet to decoder" hangs and force-kill (`SIGKILL`) the process, triggering the `HandBrakeCLI` repair pipeline.
 
@@ -25,8 +25,8 @@ This document tracks major feature implementations, architectural improvements, 
 -   **Plan:** [HLS Caching Plan](HLS_CACHING_PLAN.md)
 -   **Status:** **Implemented**.
 -   **Implementation:**
-    -   Transcode artifacts stored in `temp/shiru-transcode/{hash}`.
-    -   Stateless stateless serving of HLS playlists via `transcoder.js`.
+    -   Transcode artifacts stored in `temp/froyo-transcode/{hash}`.
+    -   Stateless serving of HLS playlists via `transcoder.js`.
     -   Persistent caching using content-based hashing (`filepath` + `mtime`).
 
 ### 4. Search & Performance Optimizations
@@ -35,6 +35,15 @@ This document tracks major feature implementations, architectural improvements, 
 -   **Features:**
     -   **TMDB Genre Caching:** `sections.js` caches genre lists per session, reducing API calls by ~99%.
     -   **Format Dropdown:** Refactored search routing to support single or multi-format queries efficiently.
+
+### 5. Rebranding to FroYo
+**Goal:** Transition from "Shiru" to "FroYo" for consistent branding.
+-   **Status:** **Fully Implemented**.
+-   **Key Implementations:**
+    -   **Core Configs:** Updated `package.json`, `capacitor.config.js`, and electron configs.
+    -   **Android Native:** Migrated `watch/shiru` directory structure to `watch/froyo`, updated `AndroidManifest.xml`, `strings.xml`, `build.gradle`, and `NativeBridge.java`.
+    -   **Refactored Deep Links:** Converted all `shiru://` protocol handlers and links to `froyo://`.
+    -   **UI Polish:** Updated all visible text, links, and the Update Modal to reflect the new brand.
 
 ---
 
@@ -52,47 +61,18 @@ This document tracks major feature implementations, architectural improvements, 
 -   **Status:** **Partial / Rolled Back**.
 -   **Context:** Backend logic exists in `sections.js` (`fetchTVSchedule`), but frontend integration was rolled back due to debugging complications. Code remains available for future re-integration.
 
+### 3. TMDB Recommendations Interaction
+**Goal:** Make TMDB recommendation cards interactive (clickable) like AniList cards.
+-   **Status:** **In Progress**.
+-   **Current State:**
+    -   ❌ **Static:** Recommendations are currently static images without click handlers.
+    -   **Plan:** Implementation Plan
+    -   **Implementation:**
+        -   Update `tmdb-api.js` to return formatted `Media` objects.
+        -   Update `DetailsModal.svelte` to use `SmallCard` for TMDB items.
+
 ---
 
-## 🚀 Future Roadmap
+## Future Roadmap
 
-### 1. Local Library Management System
-**Goal:** Database-backed local media library.
--   **Planned Features:**
-    -   SQLite Database to store file metadata.
-    -   Background Scanner Service.
-    -   Metadata Linking (Auto-match files to TMDB/AniList).
-    -   Safe Renaming Utility.
-    -   **Persistent Transcode Storage**: Setting to save repaired/transcoded files alongside originals to prevent re-encoding. Include setting to allow user toggle on or of keeping repaired/trasncoded files, alongside originals.
-
-### 2. Advanced Subtitle Support
-**Goal:** Client-side rendering of ASS/SSA/PGS subtitles.
--   **Plan:** Extract subtitles to WebVTT to reduce server-side burning and transcoding CPU load.
-
-### 3. Pirate Bay Query Formatting
-**Goal:** Optimize search queries for non-anime content.
--   **Plan:** [Pirate Bay Implementation Plan](PIRATE_BAY_IMPLEMENTATION_PLAN.md)
--   **Details:** Update `worker.js` and `piratebaysrc` to format queries differently for TV ("Show S01E01") vs Movies ("Movie Year").
-
-### 4. Jobs & Repair UI
-**Goal:** Visualize background processes like downloads and repairs.
--   **Plan:** Transform "Downloads" tab into a "Jobs" dashboard.
--   **Features:**
-    -   Real-time progress bars for HandBrake repairs.
-    -   Download status and speed.
-    -   Queue management.
-    -   **Repair Cache Management**: LRU eviction or manual clearing for `shiru-repair` to manage disk usage.
-
-### 5. Transcoding Active Streams (Investigation)
-**Goal:** Apply repair logic to *downloading* torrents for "Play While Downloading".
--   **Current Behavior:** Active torrents bypass the transcoder/repair pipeline entirely (streamed via WebTorrent). If corrupted, they crash the player.
--   **Cons:**
-    -   **Double Failure:** Fighting network lag + file corruption simultaneously.
-    -   **Seek Issues:** HandBrake requires a complete file to write a valid MP4 header (MOOV atom). Repairing a growing file is unstable.
-    -   **Performance:** 4x CPU load (Download + Repair + Transcode + Stream).
--   **Pros:**
-    -   Seamless "Click & Play" experience even for broken releases.
--   **Note on Healthy Files:**
-    -   Standard `.mkv` files (not corrupted) *can* technically be streamed while downloading by piping them through the standard FFmpeg HLS transcoder (not the HandBrake repair pipeline).
-    -   This would require updating the **Torrent Engine** to serve streams via the Transcoder proxy instead of raw HTTP.
--   **Conclusion:** Prioritize "Download First -> Auto-Repair" over "Live Repair".
+See [ROADMAP.md](ROADMAP.md) for planned features and investigations.

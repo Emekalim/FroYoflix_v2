@@ -1,4 +1,4 @@
-package watch.shiru;
+package watch.froyo;
 
 import android.os.Bundle;
 import android.webkit.ServiceWorkerClient;

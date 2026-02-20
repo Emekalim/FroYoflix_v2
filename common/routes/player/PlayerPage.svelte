@@ -12,7 +12,7 @@
   import MediaResolver from "@/modules/resolver/MediaResolver.js";
   import { durationMap, getMediaMaxEp } from "@/modules/anime/anime.js";
   import { writable } from "simple-store-svelte";
-  import { createEventDispatcher } from "svelte";
+  import { createEventDispatcher, onDestroy } from "svelte";
   import Subtitles from "@/modules/subtitles.js";
   import {
     toTS,
@@ -322,6 +322,23 @@
     }
   }
 
+  let currentTranscodeHash = null;
+
+  async function stopTranscode(hash) {
+    if (!hash || !ELECTRON) return;
+    try {
+      const port = await window.electron.getTranscoderPort();
+      if (port) {
+        await fetch(`http://localhost:${port}/stop?hash=${hash}`, {
+          method: "DELETE",
+        });
+        console.log("[Player] Stopped transcoding for hash:", hash);
+      }
+    } catch (e) {
+      console.error("[Player] Failed to stop transcoding:", e);
+    }
+  }
+
   let loadInterval;
 
   function clearLoadInterval() {
@@ -416,7 +433,13 @@
             const response = await fetch(
               `http://localhost:${port}/init?file=${encodeURIComponent(filePath)}`,
             );
-            const { url: hlsUrl } = await response.json();
+            const { url: hlsUrl, hash } = await response.json();
+
+            // Stop previous transcode if exists (e.g. switching episodes)
+            if (currentTranscodeHash && currentTranscodeHash !== hash) {
+              stopTranscode(currentTranscodeHash);
+            }
+            currentTranscodeHash = hash;
 
             // Initialize hls.js with optimized buffer settings and resilience
             hls = new Hls({
@@ -2059,12 +2082,12 @@
       } else {
         activity.buttons = [
           {
-            label: "Watch on Shiru",
-            url: `shiru://anime/${np.media?.id}`,
+            label: "Watch on FroYo",
+            url: `froyo://anime/${np.media?.id}`,
           },
           {
-            label: "Download Shiru",
-            url: "https://github.com/RockinChaos/Shiru/releases/latest",
+            label: "Download FroYo",
+            url: "https://github.com/Emekalim/FroYoflix_v2/releases/latest",
           },
         ];
       }
@@ -2075,14 +2098,14 @@
         state: "Exploring the anime library...",
         assets: {
           large_image: "icon",
-          large_text: "https://github.com/RockinChaos/Shiru",
+          large_text: "https://github.com/Emekalim/FroYoflix_v2",
           small_image: "searching",
-          small_text: "Browsing anime on Shiru",
+          small_text: "Browsing anime on FroYo",
         },
         buttons: [
           {
-            label: "Download Shiru",
-            url: "https://github.com/RockinChaos/Shiru/releases/latest",
+            label: "Download FroYo",
+            url: "https://github.com/Emekalim/FroYoflix_v2/releases/latest",
           },
         ],
         instance: true,

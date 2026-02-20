@@ -258,6 +258,6 @@ async function search(query, mediaType) {
 - Existing anime functionality preserved
 - Foundation built for Phase 2 expansion
 - Fully documented and tested
-- Ready to integrate with rest of Shiru
+- Ready to integrate with rest of FroYo
 
 **Next step**: Merge into main branch and start Phase 2 TMDB/Trakt implementation.

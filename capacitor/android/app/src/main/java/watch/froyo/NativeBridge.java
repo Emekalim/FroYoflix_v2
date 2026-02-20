@@ -1,4 +1,4 @@
-package watch.shiru;
+package watch.froyo;
 
 public class NativeBridge {
   private final android.app.Activity activity;

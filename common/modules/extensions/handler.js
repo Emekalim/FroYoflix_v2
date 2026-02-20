@@ -334,6 +334,7 @@ export function dedupe(entries) {
   /** @type {Record<string, Result>} */
   const deduped = {}
   for (const entry of entries) {
+    normalizeResult(entry)
     if (deduped[entry.hash] && !deduped[entry.hash]?.source?.managed) {
       const dupe = deduped[entry.hash]
       dupe.title = MediaResolver.cleanFileName(entry.title)
@@ -357,4 +358,74 @@ export function dedupe(entries) {
   }
 
   return Object.values(deduped)
+}
+
+/** @param {Result} result */
+function normalizeResult(result) {
+  // Normalize Size (handle string formatted sizes)
+  // If size is missing or empty, try to find an alias
+  if (!result.size) {
+    result.size = result.Size || result.filesize || result.size_bytes
+  }
+
+  if (typeof result.size === 'string') {
+    const match = result.size.match(/([\d.,]+)\s*([a-zA-Z]+)/)
+    if (match) {
+      const val = parseFloat(match[1].replace(',', '.'))
+      const unit = match[2].toLowerCase().replace(/i?b$/, '') // kb, mib -> k, m
+      const units = ['b', 'k', 'm', 'g', 't', 'p']
+      const power = units.indexOf(unit.charAt(0) === 'k' || unit.charAt(0) === 'm' || unit.charAt(0) === 'g' || unit.charAt(0) === 't' || unit.charAt(0) === 'p' ? unit.charAt(0) : 'b')
+      if (power > -1) {
+        result.size = val * Math.pow(1024, power)
+      }
+    }
+  } else if (typeof result.size !== 'number') {
+    // If it's not a number and not a parseable string, set to 0 to be safe
+    result.size = 0
+  }
+
+  // Normalize Date
+  if (!result.date) {
+    const date = result.Date || result.uploaded || result.added || result.time || result.DateUploaded
+    if (date) {
+      const parsed = new Date(date)
+      // Check for valid date AND that it's not the year 2001 (unless explicitly specified)
+      // "02-03 08:25" parses to year 2001 in some environments, which we want to avoid if it looks like MM-DD HH:mm
+      const is2001 = parsed.getFullYear() === 2001
+      const looksLikeTime = typeof date === 'string' && /^\d{2}-\d{2}\s\d{2}:\d{2}$/.test(date)
+
+      if (!isNaN(parsed.getTime()) && !is2001) result.date = parsed
+      else if (typeof date === 'string') {
+        // Handle "MM-DD HH:mm" -> append current year
+        if (looksLikeTime) {
+          const withYear = `${date} ${new Date().getFullYear()}`
+          const parsedWithYear = new Date(withYear)
+          if (!isNaN(parsedWithYear.getTime())) {
+            result.date = parsedWithYear
+            return
+          }
+        }
+
+        // Try parsing "MM-DD YYYY" or "DD-MM YYYY"
+        // Replace hyphens with slashes which are more universally supported
+        const slashDate = date.replace(/-/g, '/')
+        const parsedSlash = new Date(slashDate)
+        if (!isNaN(parsedSlash.getTime())) result.date = parsedSlash
+        else {
+          // Manual fallback for "MM-DD YYYY" (common in US-based indexers)
+          const parts = date.split(/[- ]/)
+          if (parts.length === 3) {
+            // Try M-D-Y
+            const mdy = new Date(`${parts[2]}-${parts[0]}-${parts[1]}`)
+            if (!isNaN(mdy.getTime())) result.date = mdy
+          }
+        }
+      }
+    }
+  }
+
+  // Normalize Peers
+  if (result.seeders === undefined && result.Seeders !== undefined) result.seeders = Number(result.Seeders)
+  if (result.leechers === undefined && result.Leechers !== undefined) result.leechers = Number(result.Leechers)
+  if (result.downloads === undefined && result.Downloads !== undefined) result.downloads = Number(result.Downloads)
 }

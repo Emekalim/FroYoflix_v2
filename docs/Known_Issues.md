@@ -1,5 +1,12 @@
 # Known & Resolved Issues
 
+> **Scope:** Development-time issues — bugs found during local development, test failures, and non-critical behavioral quirks.
+> Add new issues here. For issues that only appear in production builds (packaged app), use `production_known_issues.md`.
+>
+> **Status tags:** `RESOLVED` · `IN PROGRESS` · `MONITORING` · `BLOCKED`
+>
+> **Adding an entry:** Include file paths and line numbers, the root cause, and any failed approaches tried.
+
 This document tracks technical hurdles, their root causes, and implemented solutions.
 
 ## ✅ Resolved Issues
@@ -7,7 +14,7 @@ This document tracks technical hurdles, their root causes, and implemented solut
 ### 1. HEVC Playback & Transcoding Stalls
 > **Status**: **RESOLVED**
 > **Resolution**: Implemented Smart Fallback with HandBrake repair + Persistent Storage.
-> **Implementation**: See [Improvements Tracker - Item 2 & 4](../.gemini/antigravity/brain/c1a3742c-7f4d-45a9-94ca-baa87f1c35d0/improvements_tracker.md)
+> **Implementation**: See [Improvements Tracker - Item 2 & 4](./Improvements_Tracker.md)
 
 **Issue Description:**
 Video playback buffers indefinitely or freezes at a specific timestamp (approx. 30:00) for certain HEVC (H.265) encoded files. Transcoding logs reveal critical decoder errors at this point.
@@ -42,12 +49,12 @@ VLC Media Player's resilience comes from its unique architecture around **libavc
 -   **Software Reality**: However, since our *software* decoding attempt (`libx264` + standard `hevc` decoder) also failed with `Invalid data` on macOS, this indicates the **bitstream corruption is severe enough to crash the standard cross-platform FFmpeg decoder**. Therefore, this file would likely fail on Windows and Linux FFmpeg builds as well.
 
 **Implemented Solution:**
-**Smart Fallback** to `HandBrakeCLI` has been implemented in [transcoder.js](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/electron/src/main/transcoder.js). It detects the decoder crash, kills the FFmpeg process, and triggers a repair.
+**Smart Fallback** to `HandBrakeCLI` has been implemented in [transcoder.js](../electron/src/main/transcoder.js). It detects the decoder crash, kills the FFmpeg process, and triggers a repair.
 
 **Update (2026-02-11): Repair Loop & Performance**
 > **Status**: **RESOLVED**
 > **Issue**: Repair would loop indefinitely because the repaired file was deleted with cache.
-> **Fix**: Implemented `shiru-repair` persistent directory.
+> **Fix**: Implemented `froyo-repair` persistent directory.
 > **Optimization**: Repaired files are now **Stream Copied** (`-c copy`) for instant playback.
 
 **Repair Performance & Limitations:**
@@ -56,6 +63,95 @@ VLC Media Player's resilience comes from its unique architecture around **libavc
 -   **Future Work**:
     -   Optimizing HandBrake presets (e.g., `Super Fast` or `Ultrafast`).
     -   Enabling hardware acceleration for the repair step itself.
+
+
+### 2. Untrack Deletes Files
+> **Status**: **RESOLVED**
+> **Resolution**: Separated "Untrack" (safe) and "Delete" (destructive) actions.
+> **Implementation**: Updated backend to support `deleteData` flag; added explicit "Delete" button in UI.
+
+**Issue Description:**
+The "Untrack" option in the torrent modal previously removed the torrent from the client **and** deleted the downloaded files from the disk without warning.
+
+**Technical Root Cause:**
+The `untrack` function unconditionally sent a message to the torrent worker which called `remove` with `{ destroyStore: true }`. This was a legacy default behavior that equated "untracking" with "complete removal".
+
+**Implemented Solution:**
+1.  **Backend**: Updated `untrack(hash, deleteData)` to accept a boolean flag. The worker now uses this flag to determine whether to pass `destroyStore: true` (delete files) or `destroyStore: false` (keep files).
+2.  **Frontend**:
+    -   **Untrack**: Now calls `untrack(hash, false)`. It removes the torrent from the client list but **preserves** user data.
+    -   **Delete**: New red button added. Calls `untrack(hash, true)` to explicitly delete the torrent and its data.
+
+
+### 3. Torrent Modal Inaccurate Metadata
+> **Status**: **RESOLVED**
+> **Resolution**: Fixed string size parsing and normalized date handling in `handler.js`.
+> **Implementation**: Updated `normalizeResult` to correctly parse string-based file sizes and invalid date formats.
+
+**Issue Description:**
+The Torrent Modal displayed search results with "0 B" size and incorrect dates because the application failed to parse specific metadata formats returned by extensions.
+
+**Technical Root Cause:**
+The `normalizeResult` function in `handler.js` failed to parse string-based size fields (e.g., "1.81 GiB") and non-standard date strings, causing them to default to zero or the current time.
+
+**Implemented Solution:**
+Updated the result normalization logic to:
+1.  **Sizes**: Detect and parse string-based size fields into bytes.
+2.  **Dates**: Parse various date string formats and handle edge cases (like year 2001 defaults) to ensure accurate upload dates are displayed.
+
+### 4. Persistent Zombie FFmpeg Processes
+> **Status**: **RESOLVED**
+> **Resolution**: implemented Explicit Lifecycle Management.
+> **Implementation**: 
+> 1.  **Backend**: `transcoder.js` now includes a `safeCleanup()` method to kill zombie processes from previous runs/versions on startup. Added `DELETE /stop` endpoint.
+> 2.  **Frontend**: `PlayerPage` now calls `/stop` when switching videos, but *allows* background transcoding when navigating away (removed `onDestroy` kill).
+> 3.  **Resumption**: Added safety check to restart transcoding if a playlist exists but the process is dead (stalled state).
+
+**Issue Description:**
+`ffmpeg` processes spawned for HLS transcoding persist even after the user quits the app or previous versions left "zombie" processes (e.g., from legacy "Shiru" builds).
+
+**Technical Root Cause:**
+Lack of explicit process termination signals from the frontend and no startup cleanup logic to handle orphaned processes from crashed/force-quit sessions.
+
+---
+
+### 5. HandBrake Repair Triggered by Stop (False Positive)
+> **Status**: **RESOLVED**
+> **Resolution**: Implemented "Intentional Stop" State Tracking.
+> **Implementation**: Updated `transcoder.js` to track explicit stop requests and ignore resulting `SIGKILL` errors.
+
+**Issue Description:**
+Stopping playback or closing the application inadvertently triggered the "Smart Fallback" `HandBrakeCLI` repair mechanism, causing high CPU usage on a healthy file.
+
+**Symptoms:**
+-   User navigating away from a video or closing the app caused a background `HandBrakeCLI` process to start.
+-   Logs showed `ffmpeg was killed with signal SIGKILL` followed by `Critical failure detected. Initiating Smart Fallback repair...`.
+
+**Technical Root Cause:**
+The `error` event handler in `transcoder.js` was designed to catch *decoder crashes* which often manifest as the process killing itself (or being killed by the OS) with `SIGKILL`. The handler did not distinguish between an **unintentional crash** (which needs repair) and an **intentional stop** (triggered by `stop()` or the `/stop` endpoint) which also uses `SIGKILL` for immediate termination.
+
+**Implemented Solution:**
+1.  **State Tracking**: Introduced `this.intentionalStops = new Set()` in the `Transcoder` class.
+2.  **Flagging**: When `stop()` or `DELETE /stop` is called, the specific file hash is added to `intentionalStops` *before* sending the kill signal.
+3.  **Conditional Handling**: The `error` handler now checks `if (this.intentionalStops.has(hash))` before triggering the repair logic. If found, the error is ignored, and the hash is removed from the set.
+
+### 6. Genre Filter Mismatch (TMDB)
+> **Status**: **RESOLVED**
+> **Resolution**: Implemented Strict Filtering & Advanced Genre Mapping.
+> **Implementation**: Updated [sections.js](../common/modules/sections.js) to map AniList genres to TMDB equivalents (e.g., Action -> Action & Adventure) and enforcing strict filtering on API and client side.
+
+**Issue Description:**
+Movies and TV Shows appeared in genre filters (e.g., "Sports", "Mecha", "Sci-Fi") but did not have that specific genre tag listed on their details page. This was due to:
+1.  **Genre Mapping Gaps**: TMDB uses combined genres for TV (e.g., "Action & Adventure") while AniList uses separate ones.
+2.  **Fallback Behavior**: When no matching genre ID was found (e.g., "Mecha"), the API request fell back to "Trending", returning irrelevant popular shows.
+
+**Implemented Solution:**
+1.  **Strict Filtering**: If a user selects a genre and no matching TMDB ID exists, the system now returns **0 results** instead of falling back to trending.
+2.  **Smart Mapping**:
+    -   Mapped `Action`, `Adventure` -> `Action & Adventure` (TV)
+    -   Mapped `Sci-Fi`, `Fantasy` -> `Sci-Fi & Fantasy` (TV)
+    -   Mapped `War` -> `War & Politics` (TV)
+3.  **Client-Side Parity**: Updated client-side filtering to respect these mappings even when using the search endpoint.
 
 ## Known Issues
 ### 1. Player State Glitch on Error
@@ -80,4 +176,15 @@ If a video fails to play (e.g., transcoding error or network issue), the player 
 -   Wrapped `setCurrent` in `try...catch...finally`.
 -   Explicitly destroying `hls` and removing `video.src` at start.
 -   Preventing ghost state by nullifying variables on error.
+
+
+
+
+
+
+
+
+
+
+
 

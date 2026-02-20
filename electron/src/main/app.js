@@ -172,7 +172,7 @@ export default class App {
     })
 
     if (process.platform === 'win32') {
-      app.setAppUserModelId('com.github.rockinchaos.shiru')
+      app.setAppUserModelId('com.github.rockinchaos.froyo')
       // this message usually fires in dev-mode from the parent process
       process.on('message', data => {
         if (data === 'graceful-exit') this.destroy()
@@ -204,8 +204,8 @@ export default class App {
     this.mainWindow.webContents.on('render-process-gone', async (e, { reason }) => {
       if (reason === 'crashed') {
         if (++crashcount > 10) {
-          await dialog.showMessageBox({ message: 'Crashed too many times.', title: 'Shiru', detail: 'App crashed too many times. For a fix visit https://github.com/RockinChaos/Shiru/wiki/faq/', icon: '/renderer/public/icon_filled.png' })
-          shell.openExternal('https://github.com/RockinChaos/Shiru/wiki/faq/')
+          await dialog.showMessageBox({ message: 'Crashed too many times.', title: 'FroYo', detail: 'App crashed too many times. For a fix visit https://github.com/Emekalim/FroYoflix_v2/wiki/faq/', icon: '/renderer/public/icon_filled.png' })
+          shell.openExternal('https://github.com/Emekalim/FroYoflix_v2/wiki/faq/')
         } else {
           app.relaunch()
         }
@@ -270,7 +270,7 @@ export default class App {
           session.fromPartition(partitionName).clearStorageData()
         })
         authWindow.webContents.on('will-redirect', (event, url) => {
-          if (url.startsWith('shiru:')) {
+          if (url.startsWith('froyo:')) {
             event.preventDefault()
             authWindow.destroy()
             ipcMain.emit('handle-protocol', {}, url)
@@ -487,14 +487,14 @@ export default class App {
   }
   createTray() {
     if (this.destroyed) return
-    this.tray.setToolTip('Shiru')
+    this.tray.setToolTip('FroYo')
     this.setTrayMenu()
     this.tray.on('click', () => this.showAndFocus())
   }
   setTrayMenu() {
     if (this.destroyed || !this.tray || this.tray.isDestroyed()) return
     this.tray.setContextMenu(Menu.buildFromTemplate([
-      { label: 'Shiru', enabled: false },
+      { label: 'FroYo', enabled: false },
       ...(this.ready ? [
         { type: 'separator' },
         { label: 'Show', click: () => this.showAndFocus() },

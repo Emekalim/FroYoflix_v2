@@ -1,14 +1,14 @@
 const mode = process.env.NODE_ENV?.trim() || 'development'
 
 const config = {
-  appId: 'watch.shiru',
-  appName: 'Shiru',
+  appId: 'watch.froyo',
+  appName: 'FroYo',
   webDir: 'build',
   android: {
     buildOptions: {
-      keystorePath: './watch.shiru',
+      keystorePath: './watch.froyo',
       keystorePassword: '',
-      keystoreAlias: 'watch.shiru'
+      keystoreAlias: 'watch.froyo'
     },
     webContentsDebuggingEnabled: true
   },

@@ -19,7 +19,7 @@ const torrentRx = /(^magnet:){1}|(^[A-F\d]{8,40}$){1}|(.*\.torrent$){1}/i
 let _settings
 class TorrentWorker extends EventTarget {
 
-  constructor () {
+  constructor() {
     super()
 
     this.ready = new Promise(resolve => {
@@ -33,11 +33,11 @@ class TorrentWorker extends EventTarget {
     })
   }
 
-  handleMessage ({ data }) {
+  handleMessage({ data }) {
     this.emit(data.type, data.data)
   }
 
-  async send (type, data, transfer) {
+  async send(type, data, transfer) {
     await this.ready
     debug(`Sending message ${type}`, data && type !== 'load' ? JSON.stringify(data) : '')
     this.port.postMessage({ type, data }, transfer)
@@ -86,10 +86,10 @@ clipboard.on('text', ({ detail }) => {
   }
 })
 if (!SUPPORTS.isAndroid) {
-  clipboard.on('files', async ({detail}) => {
+  clipboard.on('files', async ({ detail }) => {
     for (const file of detail) {
       if (file.name.endsWith('.torrent')) {
-        media.value = {torrent: true}
+        media.value = { torrent: true }
         add(new Uint8Array(await file.arrayBuffer()))
       }
     }
@@ -128,10 +128,10 @@ export async function unload(torrent, hash) {
     client.send('unload', { torrent, hash })
   }
 }
-export async function untrack(hash) {
+export async function untrack(hash, deleteData = false) {
   if (hash) {
-    debug('Untracking torrent', hash)
-    client.send('untrack', hash)
+    debug('Untracking torrent', hash, deleteData)
+    client.send('untrack', { hash, deleteData })
   }
 }
 export async function complete(hash) {
@@ -200,7 +200,7 @@ function setupTorrentClient() {
     deduplicateTorrents(detail?.infoHash, 'stagingTorrents', 'seedingTorrents', 'completedTorrents')
     client.emit('untrack', detail?.infoHash)
   })
-  client.on('untrack',  ({ detail }) => {
+  client.on('untrack', ({ detail }) => {
     debug(`Untracking torrent:`, JSON.stringify(detail))
     for (const category of ['stagingTorrents', 'seedingTorrents', 'completedTorrents']) {
       const list = cache.getEntry(caches.GENERAL, category) || []
@@ -210,7 +210,7 @@ function setupTorrentClient() {
     seedingTorrents.update(arr => arr.filter(torrent => torrent.infoHash !== detail))
     completedTorrents.update(arr => arr.filter(torrent => torrent.infoHash !== detail))
   })
-  client.on('staging',  ({ detail }) => {
+  client.on('staging', ({ detail }) => {
     debug(`Staging torrent:`, JSON.stringify(detail))
     const torrents = cache.getEntry(caches.GENERAL, 'stagingTorrents') || []
     if (!torrents.includes(detail)) {
@@ -223,13 +223,13 @@ function setupTorrentClient() {
     completedTorrents.update(torrents => torrents.filter(torrent => torrent.infoHash !== detail))
     if (found) (found.incomplete ? stagingTorrents : seedingTorrents).update(prev => [found, ...prev.filter(torrent => torrent.infoHash !== detail)])
   })
-  client.on('seeding',  ({ detail }) => {
+  client.on('seeding', ({ detail }) => {
     debug(`Seeding torrent:`, JSON.stringify(detail))
     const torrents = cache.getEntry(caches.GENERAL, 'seedingTorrents') || []
     if (!torrents.includes(detail)) cache.setEntry(caches.GENERAL, 'seedingTorrents', Array.from(new Set([...torrents, detail])))
     deduplicateTorrents(detail, 'stagingTorrents', 'completedTorrents')
   })
-  client.on('completed',  ({ detail }) => {
+  client.on('completed', ({ detail }) => {
     debug(`Completed torrent:`, JSON.stringify(detail))
     const torrents = cache.getEntry(caches.GENERAL, 'completedTorrents') || []
     if (!torrents.includes(detail?.infoHash)) cache.setEntry(caches.GENERAL, 'completedTorrents', Array.from(new Set([...torrents, detail.infoHash])))
@@ -250,7 +250,7 @@ function setupTorrentClient() {
       for (const exclude of excludedToastMessages) {
         if ((detail.message || detail)?.toLowerCase()?.includes(exclude)) return
       }
-      toast.error('Torrent Error', {description: '' + (detail.message || detail)})
+      toast.error('Torrent Error', { description: '' + (detail.message || detail) })
     }
   })
   client.on('warn', ({ detail }) => {
@@ -259,7 +259,7 @@ function setupTorrentClient() {
       for (const exclude of excludedToastMessages) {
         if ((detail.message || detail)?.toLowerCase()?.includes(exclude)) return
       }
-      toast.warning('Torrent Warning', {description: '' + (detail.message || detail)})
+      toast.warning('Torrent Warning', { description: '' + (detail.message || detail) })
     }
   })
   client.on('info', ({ detail }) => {

@@ -275,7 +275,7 @@ This ensures old anime-only extensions continue working without modification.
 For existing extensions like Nyaa, add `extension.json`:
 
 ```bash
-SourceExtensions/shiru/sources/nyaasrc/
+SourceExtensions/froyo/sources/nyaasrc/
 ├── index.js
 └── extension.json  ← ADD THIS
 ```

@@ -179,7 +179,7 @@ If you get valid JSON back, your keys work! ✅
 
 ### "ENOENT: no such file or directory, open '.env'"
 - Create `.env` file if it doesn't exist
-- Must be in `/Shiru-6.4.8/` directory
+- Must be in `/FroYo-6.4.8/` directory
 - Not in `common/modules/providers/`
 
 ---

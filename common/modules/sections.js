@@ -17,7 +17,7 @@ export const key = writable({})
 export const search = writable(lastSearched || { genre: [], genre_not: [], tag: [], tag_not: [], format: [], format_not: [], status: [], status_not: [] })
 search.subscribe(value => {
   if (!value.clearNext) {
-    const searched = {...value}
+    const searched = { ...value }
     delete searched.load
     delete searched.preview
     cache.setEntry(caches.HISTORY, 'lastSearched', searched)
@@ -61,7 +61,7 @@ async function fetchAndCacheTMDBGenres(type) {
   try {
     const genreUrl = new URL(`https://api.themoviedb.org/3/genre/${type}/list`)
     genreUrl.searchParams.append('api_key', tmdbApiKey)
-    
+
     const response = await fetch(genreUrl.toString())
     if (!response.ok) {
       debug(`Failed to fetch TMDB genres for ${type}: ${response.status}`)
@@ -69,7 +69,7 @@ async function fetchAndCacheTMDBGenres(type) {
     }
 
     const data = await response.json()
-    
+
     // Normalize genre names (Science Fiction -> Sci-Fi)
     const genreMap = data.genres.reduce((acc, g) => {
       acc[g.id] = g.name === 'Science Fiction' ? 'Sci-Fi' : g.name
@@ -80,7 +80,7 @@ async function fetchAndCacheTMDBGenres(type) {
     tmdbGenreCache[type] = genreMap
     tmdbGenreCache.lastFetch[type] = Date.now()
     debug(`Cached TMDB genres for ${type}: ${Object.keys(genreMap).length} genres`)
-    
+
     return genreMap
   } catch (e) {
     debug(`Error fetching TMDB genres for ${type}: ${e.message}`)
@@ -89,7 +89,7 @@ async function fetchAndCacheTMDBGenres(type) {
 }
 
 export default class SectionsManager {
-  constructor (data = []) {
+  constructor(data = []) {
     this.sections = []
     for (const section of data) this.add(section)
   }
@@ -97,7 +97,7 @@ export default class SectionsManager {
   /**
    * @param {object} data
    */
-  add (data) {
+  add(data) {
     if (!data) return
     const { title, variables = {}, type, load = SectionsManager.createFallbackLoad(variables, type), preview = writable() } = data
     const section = { ...data, load, title, preview, variables }
@@ -109,7 +109,7 @@ export default class SectionsManager {
     this.sections = []
   }
 
-  static createFallbackLoad (variables, type) {
+  static createFallbackLoad(variables, type) {
     return (page = 1, perPage = 50, search = variables) => {
       const res = (search.hideSubs ? malDubs.dubLists.value : Promise.resolve()).then(dubLists => {
         const hideSubs = search.hideSubs ? { idMal: dubLists?.dubbed } : {}
@@ -141,7 +141,7 @@ export default class SectionsManager {
    */
   static async fetchTMDB(variables = {}, type = 'tv') {
     const searchQuery = variables.search || ''
-    
+
     // Use environment variable set by the app - TMDB API key must be configured
     const tmdbApiKey = window.__TMDB_API_KEY__
     if (!tmdbApiKey) {
@@ -161,40 +161,82 @@ export default class SectionsManager {
     const genreMap = await fetchAndCacheTMDBGenres(type)
 
     let url
-    
+
     // Determine which endpoint to use based on whether we have genre filters
     const hasGenreFilters = (variables.genre && variables.genre.length > 0) || (variables.genre_not && variables.genre_not.length > 0)
-    
+
     // If we have genre filters, use discover endpoint (which supports genre filtering)
     // Otherwise use search or trending
-    if (hasGenreFilters && searchQuery) {
+    // If we have genre filters, use discover endpoint (which supports genre filtering)
+    // Otherwise use search or trending
+    if (hasGenreFilters) {
       // Use discover endpoint for genre-filtered searches
       url = new URL(`https://api.themoviedb.org/3/discover/${type}`)
-      url.searchParams.append('query', searchQuery)
-      debug(`Using discover endpoint for ${type} with genre filters`)
-      
-      // Add genre IDs to the request
-      if (variables.genre && variables.genre.length > 0) {
-        // Find genre IDs that match our filter genres
-        const genreIds = Object.entries(genreMap)
-          .filter(([id, name]) => variables.genre.includes(name))
-          .map(([id]) => id)
-        if (genreIds.length > 0) {
-          url.searchParams.append('with_genres', genreIds.join('|'))
-        }
-      }
-    } else if (hasGenreFilters && !searchQuery) {
-      // Use discover endpoint for genre filtering without search
-      url = new URL(`https://api.themoviedb.org/3/discover/${type}`)
-      debug(`Using discover endpoint for ${type} with genre filters (no search)`)
-      
-      // Add genre IDs to the request
-      if (variables.genre && variables.genre.length > 0) {
-        const genreIds = Object.entries(genreMap)
-          .filter(([id, name]) => variables.genre.includes(name))
-          .map(([id]) => id)
-        if (genreIds.length > 0) {
-          url.searchParams.append('with_genres', genreIds.join('|'))
+      if (searchQuery) url.searchParams.append('query', searchQuery) // Discover allows query too? Actually discover uses 'with_keywords' or similar, strict 'query' might not work on discover. 
+      // WAIT: TMDB Discover API does NOT support free text search 'query'. It supports 'with_keywords'. 
+      // If we need to SEARCH by text AND filter by genre, we might need to use /search with post-filtering or just acknowledge TMDB limitation.
+      // However, looking at original code: 
+      // url = new URL(`https://api.themoviedb.org/3/discover/${type}`)
+      // url.searchParams.append('query', searchQuery)
+      // This implies the original code THOUGHT discover supported query. It does not. 
+      // If searchQuery is present, we MUST use /search/tv or /search/movie.
+      // But /search/tv DOES NOT support `with_genres` filtering in the API (it's query based).
+      // So if both search + genre, we must use /search and filter client Side? 
+      // OR prioritize Search.
+
+      // Let's stick to the original structure but fix the logic. 
+      // Actually, looking at docs, /discover/tv does NOT have 'query'. 
+      // So the original code line 173 `url.searchParams.append('query', searchQuery)` was likely ignored by TMDB API.
+      // This means "Search + Genre" was actually just "Genre" filtering (ignoring text).
+
+      // Correction: If there is a search query, we should probably prioritize the SEARCH endpoint.
+      // But the Issue Description says: "Movies and TV Shows appear in genre filters... but do not have that specific genre tag".
+
+      if (searchQuery) {
+        // If we have a Search Query, we use the Search Endpoint.
+        // TMDB Search API doesn't support with_genres. 
+        // We will filter client-side (which is already implemented at end of function).
+        url = new URL(`https://api.themoviedb.org/3/search/${type}`)
+        url.searchParams.append('query', searchQuery)
+        debug(`Using search endpoint for ${type} (genre filtering will be client-side)`)
+      } else {
+        // No text search, pure discovery/filtering.
+        url = new URL(`https://api.themoviedb.org/3/discover/${type}`)
+        debug(`Using discover endpoint for ${type} with genre filters`)
+
+        if (variables.genre && variables.genre.length > 0) {
+          // Map AniList genres to TMDB equivalents
+          const targetGenres = variables.genre.map(g => {
+            const name = g.trim()
+            if (type === 'tv') {
+              if (['Action', 'Adventure'].includes(name)) return 'Action & Adventure'
+              if (['Sci-Fi', 'Fantasy'].includes(name)) return 'Sci-Fi & Fantasy'
+              if (['War'].includes(name)) return 'War & Politics'
+            }
+            return name
+          })
+
+          const genreIds = Object.entries(genreMap)
+            .filter(([id, name]) => targetGenres.includes(name))
+            .map(([id]) => id)
+
+          // STRICT FILTERING: 
+          // If user requested genres but none matched (e.g. "Mecha"), return EMPTY immediately.
+          if (genreIds.length === 0) {
+            debug(`Strict Filtering: No TMDB genre IDs found for ${variables.genre.join(', ')}. Returning empty.`)
+            return {
+              data: {
+                Page: {
+                  pageInfo: { hasNextPage: false },
+                  media: []
+                }
+              }
+            }
+          }
+
+          if (genreIds.length > 0) {
+            url.searchParams.append('with_genres', genreIds.join('|'))
+          }
         }
       }
     } else if (!searchQuery) {
@@ -206,7 +248,7 @@ export default class SectionsManager {
       url = new URL(`https://api.themoviedb.org/3/search/${type}`)
       url.searchParams.append('query', searchQuery)
     }
-    
+
     url.searchParams.append('api_key', tmdbApiKey)
     if (variables.year) url.searchParams.append('year', variables.year)
     url.searchParams.append('page', variables.page || 1)
@@ -217,7 +259,7 @@ export default class SectionsManager {
     }
 
     const data = await response.json()
-    
+
     // Map TMDB results to simplified Media format
     const media = (data.results || []).map(item => ({
       id: item.id,
@@ -266,19 +308,39 @@ export default class SectionsManager {
     }))
 
     // Filter by genre if specified in variables (for client-side fallback)
-    // This is mainly for genre_not filtering, since genre filtering is handled by the API
+    // This handles 'genre_not' (always) and 'genre' (when using Search endpoint which lacks API filtering)
     let filteredMedia = media.filter(item => {
-      // If genre_not filter is specified, check that item does NOT have ANY of the excluded genres
+      const itemGenres = (item.genres || []).map(g => g.trim().toLowerCase())
+
+      // 1. Negative Filtering (Genre Not)
       if (variables.genre_not && variables.genre_not.length > 0) {
-        const itemGenres = (item.genres || []).map(g => g.trim().toLowerCase())
         const excludeGenres = variables.genre_not.map(g => g.trim().toLowerCase())
         const hasExcludedGenre = excludeGenres.some(genre => itemGenres.includes(genre))
         if (hasExcludedGenre) return false
       }
-      
+
+      // 2. Positive Filtering (Genre)
+      // Strictly enforce genre matching, especially for Search endpoint results or mismatched mappings
+      if (variables.genre && variables.genre.length > 0) {
+        // Map AniList genres to TMDB equivalents (reusing logic for consistency)
+        const targetGenres = variables.genre.map(g => {
+          const name = g.trim()
+          if (type === 'tv') {
+            if (['Action', 'Adventure'].includes(name)) return 'Action & Adventure'
+            if (['Sci-Fi', 'Fantasy'].includes(name)) return 'Sci-Fi & Fantasy'
+            if (['War'].includes(name)) return 'War & Politics'
+          }
+          return name
+        }).map(g => g.toLowerCase())
+
+        // Check if item has AT LEAST ONE of the target genres (OR logic, matching API)
+        const hasTargetGenre = targetGenres.some(target => itemGenres.includes(target))
+        if (!hasTargetGenre) return false
+      }
+
       return true
     }).filter(Boolean)
-    
+
     await cache.updateMedia(filteredMedia)
 
     return {
@@ -303,13 +365,13 @@ export default class SectionsManager {
   static mergeAndRankResults(anilistResults = [], tmdbTvResults = [], tmdbMovieResults = []) {
     // Combine all results
     const allResults = [...anilistResults, ...tmdbTvResults, ...tmdbMovieResults]
-    
+
     // Normalize popularity scores across sources
     // AniList: trending is typically 0-1000, popularity is 0-100+
     // TMDB: popularity is typically 0-1000+
     const normalizedResults = allResults.map(item => {
       let normalizedPopularity = 0
-      
+
       if (item.source === 'TMDB') {
         // TMDB uses popularity as is (0-1000+)
         normalizedPopularity = item.popularity || 0
@@ -323,13 +385,13 @@ export default class SectionsManager {
           normalizedPopularity = (item.averageScore / 100) * 100
         }
       }
-      
+
       return {
         ...item,
         _sortScore: normalizedPopularity
       }
     })
-    
+
     // Sort by normalized popularity score (descending)
     return normalizedResults.sort((a, b) => (b._sortScore || 0) - (a._sortScore || 0))
   }
@@ -347,9 +409,9 @@ export default class SectionsManager {
       if (typeof format === 'string') {
         format = format ? [format] : []
       }
-      
+
       debug(`searchByMediaType - format received: ${JSON.stringify(format)}`)
-      
+
       // Normalize format values: handle both old display names and new keys
       // Map: 'Anime' -> 'Anime', 'MOVIE' -> 'Movies', 'TV' -> 'TV Shows'
       const normalizedFormats = format.map(f => {
@@ -357,7 +419,7 @@ export default class SectionsManager {
         if (f === 'TV') return 'TV Shows'
         return f
       })
-      
+
       // Default to all formats if empty (treat none selected as all 3 selected)
       const selectedFormats = normalizedFormats.length === 0 ? ['Anime', 'Movies', 'TV Shows'] : normalizedFormats
 
@@ -378,12 +440,12 @@ export default class SectionsManager {
           return this.fetchTMDB(variables, 'movie')
         }
       }
-      
+
       // Multi-format selections - query all selected sources in parallel
       debug(`Multiple formats selected: ${selectedFormats.join(', ')} - merging results with popularity ranking`)
-      
+
       const promises = []
-      
+
       if (selectedFormats.includes('Anime')) {
         const anilistVars = { ...variables }
         delete anilistVars.format
@@ -399,7 +461,7 @@ export default class SectionsManager {
       } else {
         promises.push(Promise.resolve([]))
       }
-      
+
       if (selectedFormats.includes('TV Shows')) {
         promises.push(
           this.fetchTMDB(variables, 'tv')
@@ -412,7 +474,7 @@ export default class SectionsManager {
       } else {
         promises.push(Promise.resolve([]))
       }
-      
+
       if (selectedFormats.includes('Movies')) {
         promises.push(
           this.fetchTMDB(variables, 'movie')
@@ -425,13 +487,13 @@ export default class SectionsManager {
       } else {
         promises.push(Promise.resolve([]))
       }
-      
+
       // Wait for all queries to complete
       const [anilistResults, tvResults, movieResults] = await Promise.all(promises)
-      
+
       // Merge and sort by popularity
       const mergedMedia = this.mergeAndRankResults(anilistResults, tvResults, movieResults)
-      
+
       return {
         data: {
           Page: {
@@ -454,14 +516,14 @@ export default class SectionsManager {
     }
   }
 
-  static wrapResponse (res, length, type) {
+  static wrapResponse(res, length, type) {
     res.then(res => {
       hasNextPage.value = res?.data?.Page.pageInfo.hasNextPage
     })
     return Array.from({ length }, (_, i) => ({ type, data: SectionsManager.fromPending(res, i) }))
   }
 
-  static async fromPending (_arr, i) {
+  static async fromPending(_arr, i) {
     const arr = await _arr
     if (!arr) return null
     const { data, errors } = arr
@@ -495,9 +557,9 @@ const debounceUpdate = debounce((value) => {
 }, 3_000)
 settings.subscribe((value) => debounceUpdate(value))
 
-function createSections () {
+function createSections() {
   const sectionFormat = (title) => (settings.value.homeSections.find(([t]) => t === title)?.[2] || [])
-  const createSection = (section, variables = {}, staticSort) => ({ ...section, ...(section.sort && staticSort ? { sort: 'N/A' } : {}), variables: { ...variables, sort: settings.value.homeSections.find(([t]) => !staticSort && t === section.title)?.[1] ?? section.sort, ...(Array.isArray(sectionFormat(section.title)) && sectionFormat(section.title).length > 0 ? { format : sectionFormat(section.title) } : {}) } })
+  const createSection = (section, variables = {}, staticSort) => ({ ...section, ...(section.sort && staticSort ? { sort: 'N/A' } : {}), variables: { ...variables, sort: settings.value.homeSections.find(([t]) => !staticSort && t === section.title)?.[1] ?? section.sort, ...(Array.isArray(sectionFormat(section.title)) && sectionFormat(section.title).length > 0 ? { format: sectionFormat(section.title) } : {}) } })
   return [
     // RSS feeds
     ...settings.value.rssFeedsNew.filter(([title, url]) => url).map(([title, url]) => {
@@ -539,13 +601,14 @@ function createSections () {
       }
     }),
     // user specific sections
-    createSection({ title: 'Sequels You Missed', sort: 'POPULARITY_DESC', format: [], hide: !Helper.isAuthorized() || Helper.isMalAuth(),
+    createSection({
+      title: 'Sequels You Missed', sort: 'POPULARITY_DESC', format: [], hide: !Helper.isAuthorized() || Helper.isMalAuth(),
       load: (page = 1, perPage = 50, variables = {}) => {
         if (Helper.isMalAuth()) return {} // not going to bother handling this, see below.
         const res = Helper.userLists(variables).then(res => {
           if (!res?.data && res?.errors) throw res.errors[0]
           const mediaList = res.data.MediaListCollection.lists.find(({ status }) => status === 'COMPLETED')?.entries
-          const excludeIds = res.data.MediaListCollection.lists.reduce((filtered, { status, entries }) => { return (['CURRENT', 'REPEATING', 'COMPLETED', 'DROPPED', 'PAUSED'].includes(status)) ? filtered.concat(entries) : filtered}, []).map(({ media }) => media.id).filter(Boolean) || []
+          const excludeIds = res.data.MediaListCollection.lists.reduce((filtered, { status, entries }) => { return (['CURRENT', 'REPEATING', 'COMPLETED', 'DROPPED', 'PAUSED'].includes(status)) ? filtered.concat(entries) : filtered }, []).map(({ media }) => media.id).filter(Boolean) || []
           if (!mediaList) return {}
           const ids = mediaList.flatMap(({ media }) => media.relations.edges.filter(edge => edge.relationType === 'SEQUEL')).map(({ node }) => node.id).filter(Boolean)
           if (!ids.length) return {}
@@ -554,13 +617,14 @@ function createSections () {
         return SectionsManager.wrapResponse(res, perPage)
       } // disable this section when authenticated with MyAnimeList. API for userLists fail to return relations and likely will never be fixed on their end.
     }, { userList: true, missedList: true, disableHide: true }),
-    createSection({ title: 'Stories You Missed', sort: 'POPULARITY_DESC', format: [], hide: !Helper.isAuthorized() || Helper.isMalAuth(),
+    createSection({
+      title: 'Stories You Missed', sort: 'POPULARITY_DESC', format: [], hide: !Helper.isAuthorized() || Helper.isMalAuth(),
       load: (page = 1, perPage = 50, variables = {}) => {
         if (Helper.isMalAuth()) return {} // same as Sequels You Missed
         const res = Helper.userLists(variables).then(res => {
           if (!res?.data && res?.errors) throw res.errors[0]
           const mediaList = res.data.MediaListCollection.lists.find(({ status }) => status === 'COMPLETED')?.entries
-          const excludeIds = res.data.MediaListCollection.lists.reduce((filtered, { status, entries }) => { return (['CURRENT', 'REPEATING', 'COMPLETED', 'DROPPED', 'PAUSED'].includes(status)) ? filtered.concat(entries) : filtered}, []).map(({ media }) => media.id).filter(Boolean) || []
+          const excludeIds = res.data.MediaListCollection.lists.reduce((filtered, { status, entries }) => { return (['CURRENT', 'REPEATING', 'COMPLETED', 'DROPPED', 'PAUSED'].includes(status)) ? filtered.concat(entries) : filtered }, []).map(({ media }) => media.id).filter(Boolean) || []
           if (!mediaList) return {}
           const ids = mediaList.flatMap(({ media }) => media.relations.edges.filter(edge => !['SEQUEL', 'CHARACTER', 'OTHER'].includes(edge.relationType))).map(({ node }) => node.id).filter(Boolean)
           if (!ids.length) return {}
@@ -569,7 +633,8 @@ function createSections () {
         return SectionsManager.wrapResponse(res, perPage)
       } // disable this section when authenticated with MyAnimeList. API for userLists fail to return relations and likely will never be fixed on their end.
     }, { userList: true, missedList: true, disableHide: true }),
-    createSection({ title: 'Continue Watching', sort: 'UPDATED_TIME_DESC', format: [], hide: !Helper.isAuthorized(),
+    createSection({
+      title: 'Continue Watching', sort: 'UPDATED_TIME_DESC', format: [], hide: !Helper.isAuthorized(),
       load: (page = 1, perPage = 50, variables = {}) => {
         const res = Helper.userLists(variables).then(res => {
           if (!res?.data && res?.errors) throw res.errors[0]
@@ -614,7 +679,8 @@ function createSections () {
         return SectionsManager.wrapResponse(res, perPage)
       }
     }, { userList: true, continueWatching: true, disableHide: true, status_not }),
-    createSection({ title: 'Watching List', sort: 'UPDATED_TIME_DESC', format: [], hide: !Helper.isAuthorized(),
+    createSection({
+      title: 'Watching List', sort: 'UPDATED_TIME_DESC', format: [], hide: !Helper.isAuthorized(),
       load: (page = 1, perPage = 50, variables = {}) => {
         const res = Helper.userLists(variables).then(res => {
           if (!res?.data && res?.errors) throw res.errors[0]
@@ -627,7 +693,8 @@ function createSections () {
         return SectionsManager.wrapResponse(res, perPage)
       }
     }, { userList: true, disableHide: true, status_not }),
-    createSection({ title: 'Rewatching List', sort: 'UPDATED_TIME_DESC', format: [], hide: !Helper.isAuthorized(),
+    createSection({
+      title: 'Rewatching List', sort: 'UPDATED_TIME_DESC', format: [], hide: !Helper.isAuthorized(),
       load: (page = 1, perPage = 50, variables = {}) => {
         const res = Helper.userLists(variables).then(res => {
           if (!res?.data && res?.errors) throw res.errors[0]
@@ -640,7 +707,8 @@ function createSections () {
         return SectionsManager.wrapResponse(res, perPage)
       }
     }, { userList: true, disableHide: true, status_not }),
-    createSection({ title: 'Completed List', sort: 'UPDATED_TIME_DESC', format: [], hide: !Helper.isAuthorized(),
+    createSection({
+      title: 'Completed List', sort: 'UPDATED_TIME_DESC', format: [], hide: !Helper.isAuthorized(),
       load: (page = 1, perPage = 50, variables = {}) => {
         const res = Helper.userLists(variables).then(res => {
           if (!res?.data && res?.errors) throw res.errors[0]
@@ -653,7 +721,8 @@ function createSections () {
         return SectionsManager.wrapResponse(res, perPage)
       }
     }, { userList: true, completedList: true, disableHide: true, status_not }),
-    createSection({ title: 'Planning List', sort: 'POPULARITY_DESC', format: [], hide: !Helper.isAuthorized(),
+    createSection({
+      title: 'Planning List', sort: 'POPULARITY_DESC', format: [], hide: !Helper.isAuthorized(),
       load: (page = 1, perPage = 50, variables = {}) => {
         const res = Helper.userLists(variables).then(res => {
           if (!res?.data && res?.errors) throw res.errors[0]
@@ -666,7 +735,8 @@ function createSections () {
         return SectionsManager.wrapResponse(res, perPage)
       }
     }, { userList: true, planningList: true, disableHide: true, status_not }),
-    createSection({ title: 'Paused List', sort: 'UPDATED_TIME_DESC', format: [], hide: !Helper.isAuthorized(),
+    createSection({
+      title: 'Paused List', sort: 'UPDATED_TIME_DESC', format: [], hide: !Helper.isAuthorized(),
       load: (page = 1, perPage = 50, variables = {}) => {
         const res = Helper.userLists(variables).then(res => {
           if (!res?.data && res?.errors) throw res.errors[0]
@@ -679,7 +749,8 @@ function createSections () {
         return SectionsManager.wrapResponse(res, perPage)
       }
     }, { userList: true, disableHide: true, status_not }),
-    createSection({ title: 'Dropped List', sort: 'UPDATED_TIME_DESC', format: [], hide: !Helper.isAuthorized(),
+    createSection({
+      title: 'Dropped List', sort: 'UPDATED_TIME_DESC', format: [], hide: !Helper.isAuthorized(),
       load: (page = 1, perPage = 50, variables = {}) => {
         const res = Helper.userLists(variables).then(res => {
           if (!res?.data && res?.errors) throw res.errors[0]
@@ -706,7 +777,7 @@ function createSections () {
  * @param {number} tmdbId - TMDB TV show ID
  * @returns {Promise<Object | null>} Updated media object with episode count, or null if fetch fails
  */
-export async function fetchTMDBVideos (tmdbId, mediaFormat = 'TV') {
+export async function fetchTMDBVideos(tmdbId, mediaFormat = 'TV') {
   const tmdbApiKey = window.__TMDB_API_KEY__
   if (!tmdbApiKey || !tmdbId) return null
 
@@ -714,31 +785,31 @@ export async function fetchTMDBVideos (tmdbId, mediaFormat = 'TV') {
     const endpoint = mediaFormat === 'TV' ? 'tv' : 'movie'
     const url = new URL(`https://api.themoviedb.org/3/${endpoint}/${tmdbId}/videos`)
     url.searchParams.append('api_key', tmdbApiKey)
-    
+
     const response = await fetch(url.toString())
     if (!response.ok) return null
-    
+
     const data = await response.json()
     const videos = data.results || []
-    
+
     // Find official trailer/teaser on YouTube
-    const official = videos.find(v => 
-      v.site === 'YouTube' && 
-      v.official && 
+    const official = videos.find(v =>
+      v.site === 'YouTube' &&
+      v.official &&
       ['Trailer', 'Teaser'].includes(v.type)
     )
-    
+
     // Fallback to any trailer
-    const fallback = videos.find(v => 
-      v.site === 'YouTube' && 
+    const fallback = videos.find(v =>
+      v.site === 'YouTube' &&
       v.type === 'Trailer'
     )
-    
+
     const video = official || fallback
     if (video?.key) {
       return { id: video.key, site: 'youtube' }
     }
-    
+
     return null
   } catch (error) {
     debug('Error fetching TMDB videos:', error)
@@ -746,14 +817,14 @@ export async function fetchTMDBVideos (tmdbId, mediaFormat = 'TV') {
   }
 }
 
-export async function fetchTMDBTVDetails (tmdbId) {
+export async function fetchTMDBTVDetails(tmdbId) {
   const tmdbApiKey = window.__TMDB_API_KEY__
   if (!tmdbApiKey || !tmdbId) return null
 
   try {
     const url = new URL(`https://api.themoviedb.org/3/tv/${tmdbId}`)
     url.searchParams.append('api_key', tmdbApiKey)
-    
+
     const response = await fetch(url.toString())
     if (!response.ok) return null
 
@@ -774,7 +845,7 @@ export async function fetchTMDBTVDetails (tmdbId) {
  * @param {number} tmdbId - TMDB TV show ID
  * @returns {Promise<Object>} Episode metadata map {episodeNumber: {title, airDate, image, ...}}
  */
-export async function fetchTMDBEpisodes (tmdbId, mediaFormat = 'TV') {
+export async function fetchTMDBEpisodes(tmdbId, mediaFormat = 'TV') {
   const tmdbApiKey = window.__TMDB_API_KEY__
   if (!tmdbApiKey || !tmdbId) return {}
 
@@ -783,10 +854,10 @@ export async function fetchTMDBEpisodes (tmdbId, mediaFormat = 'TV') {
     if (mediaFormat === 'MOVIE') {
       const movieUrl = new URL(`https://api.themoviedb.org/3/movie/${tmdbId}`)
       movieUrl.searchParams.append('api_key', tmdbApiKey)
-      
+
       const movieResponse = await fetch(movieUrl.toString())
       if (!movieResponse.ok) return {}
-      
+
       const movieData = await movieResponse.json()
       return {
         1: {
@@ -827,7 +898,7 @@ export async function fetchTMDBEpisodes (tmdbId, mediaFormat = 'TV') {
       try {
         const seasonUrl = new URL(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${seasonNum}`)
         seasonUrl.searchParams.append('api_key', tmdbApiKey)
-        
+
         const seasonResponse = await fetch(seasonUrl.toString())
         if (!seasonResponse.ok) continue
 
@@ -891,13 +962,13 @@ export async function fetchTVSchedule() {
         return cachedData.data || []
       }
     }
-    
+
     // Fetch currently airing TV shows
     const url = new URL('https://api.themoviedb.org/3/tv/on_the_air')
     url.searchParams.append('api_key', tmdbApiKey)
     url.searchParams.append('page', '1')
     url.searchParams.append('sort_by', 'popularity.desc')
-    
+
     const response = await fetch(url.toString())
     if (!response.ok) {
       return []
@@ -905,7 +976,7 @@ export async function fetchTVSchedule() {
 
     const data = await response.json()
     const shows = data.results || []
-    
+
     // For each show, fetch detailed info to get next_episode_to_air
     const enrichedShows = await Promise.all(shows.map(async (show) => {
       try {
@@ -931,7 +1002,7 @@ export async function fetchTVSchedule() {
         if (!airDate) {
           return null
         }
-        
+
         return {
           id: show.id,
           title: {
