@@ -6,7 +6,7 @@ This document tracks major feature implementations, architectural improvements, 
 
 ### 1. Multi-Media Support (Media Extension Overhaul)
 **Goal:** Extend FroYo to support TV Shows, Movies, and mixed media types while preserving Anime functionality.
--   **Core Plans:** [Media Extension Plan](MEDIA_EXTENSION_PLAN.md), [TMDB Analysis](TMDB_COMPATIBILITY_ANALYSIS.md)
+-   **Core Plans:** [Media Extension Plan](archive/MEDIA_EXTENSION_PLAN.md), [TMDB Analysis](archive/TMDB_COMPATIBILITY_ANALYSIS.md)
 -   **Status:** **Phases 1-4 Complete**.
 -   **Key Implementations:**
     -   **Provider Abstraction:** Created unified `MediaProvider` interface and `common/modules/providers` registry to handle AniList, MAL, TMDB, and Trakt side-by-side.
@@ -16,13 +16,13 @@ This document tracks major feature implementations, architectural improvements, 
 
 ### 2. Robust HLS Playback & Smart Fallback
 **Goal:** Prevent indefinite buffering/crashes on corrupted HEVC files.
--   **Plan:** [Smart Fallback Implementation Plan](../.gemini/antigravity/brain/c1a3742c-7f4d-45a9-94ca-baa87f1c35d0/implementation_plan.md)
+-   **Plan:** Smart Fallback Implementation Plan
 -   **Status:** **Fully Implemented**.
 -   **Deviations:** Added active `stderr` monitoring in `transcoder.js` to detect "Error submitting packet to decoder" hangs and force-kill (`SIGKILL`) the process, triggering the `HandBrakeCLI` repair pipeline.
 
 ### 3. HLS Caching Architecture
 **Goal:** Enable seeking, persistence, and efficient streaming.
--   **Plan:** [HLS Caching Plan](HLS_CACHING_PLAN.md)
+-   **Plan:** [HLS Caching Plan](archive/HLS_CACHING_PLAN.md)
 -   **Status:** **Implemented**.
 -   **Implementation:**
     -   Transcode artifacts stored in `temp/froyo-transcode/{hash}`.
@@ -66,7 +66,7 @@ This document tracks major feature implementations, architectural improvements, 
 -   **Status:** **In Progress**.
 -   **Current State:**
     -   ❌ **Static:** Recommendations are currently static images without click handlers.
-    -   **Plan:** [Implementation Plan](../.gemini/antigravity/brain/916d70f9-5491-42de-bd63-b96294d40c91/implementation_plan.md)
+    -   **Plan:** [Implementation Plan](archive/IMPLEMENTATION_PLAN.md)
     -   **Implementation:**
         -   Update `tmdb-api.js` to return formatted `Media` objects.
         -   Update `DetailsModal.svelte` to use `SmallCard` for TMDB items.

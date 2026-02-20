@@ -7,7 +7,7 @@ This document tracks technical hurdles, their root causes, and implemented solut
 ### 1. HEVC Playback & Transcoding Stalls
 > **Status**: **RESOLVED**
 > **Resolution**: Implemented Smart Fallback with HandBrake repair + Persistent Storage.
-> **Implementation**: See [Improvements Tracker - Item 2 & 4](../.gemini/antigravity/brain/c1a3742c-7f4d-45a9-94ca-baa87f1c35d0/improvements_tracker.md)
+> **Implementation**: See [Improvements Tracker - Item 2 & 4](./Improvements_Tracker.md)
 
 **Issue Description:**
 Video playback buffers indefinitely or freezes at a specific timestamp (approx. 30:00) for certain HEVC (H.265) encoded files. Transcoding logs reveal critical decoder errors at this point.
