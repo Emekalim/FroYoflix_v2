@@ -1,5 +1,5 @@
 /**
- * Shiru Provider Abstraction Types
+ * FroYo Provider Abstraction Types
  * Unified type definitions for all media providers
  */
 

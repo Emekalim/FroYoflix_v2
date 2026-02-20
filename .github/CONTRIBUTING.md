@@ -1,6 +1,6 @@
-# Contributing to Shiru
+# Contributing to FroYo
 
-First off — thank you for considering contributing to **Shiru**! 🎉  
+First off — thank you for considering contributing to **FroYo**! 🎉  
 Whether you're fixing a bug, adding a feature, improving performance, or updating docs, all contributions help make the project better for everyone.
 
 ## 📑 Table of Contents
@@ -26,7 +26,7 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 Found a bug? Help us fix it by creating a detailed bug report:
 
-1. **Check existing issues** - Search the [issue tracker](https://github.com/RockinChaos/Shiru/issues) to see if the bug has already been reported
+1. **Check existing issues** - Search the [issue tracker](https://github.com/Emekalim/FroYoflix_v2/issues) to see if the bug has already been reported
 2. **Use the bug report template** - Click "New Issue" and select "Bug Report"
 3. **Provide details** - Include:
     - Your operating system and architecture
@@ -37,9 +37,9 @@ Found a bug? Help us fix it by creating a detailed bug report:
 
 ### ✨ Suggesting Features
 
-Have an idea to improve Shiru? We'd love to hear it:
+Have an idea to improve FroYo? We'd love to hear it:
 
-1. **Check existing requests** - Search the [issue tracker](https://github.com/RockinChaos/Shiru/issues) to avoid duplicates
+1. **Check existing requests** - Search the [issue tracker](https://github.com/Emekalim/FroYoflix_v2/issues) to avoid duplicates
 2. **Use the feature request template** - Click "New Issue" and select "Feature Request"
 3. **Be specific** - Clearly describe:
     - What problem the feature solves
@@ -51,7 +51,7 @@ Have an idea to improve Shiru? We'd love to hear it:
 
 Need help or clarification? We're here to assist:
 
-1. **Check the FAQ** - Visit our [frequently asked questions](https://github.com/RockinChaos/Shiru/wiki/faq)
+1. **Check the FAQ** - Visit our [frequently asked questions](https://github.com/Emekalim/FroYoflix_v2/wiki/faq)
 2. **Use the assistance request template** - Click "New Issue" and select "Assistance Request"
 3. **Be clear** - Describe what you're trying to do and what you've already tried
 
@@ -83,8 +83,8 @@ Want to contribute code? Great! Here's how:
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/RockinChaos/Shiru.git
-cd Shiru
+git clone https://github.com/Emekalim/FroYoflix_v2.git
+cd FroYo
 ```
 
 2. Navigate to the Electron directory:
@@ -111,8 +111,8 @@ npm run build
 
 1. Clone the repository (if you haven't already):
 ```bash
-git clone https://github.com/RockinChaos/Shiru.git
-cd Shiru
+git clone https://github.com/Emekalim/FroYoflix_v2.git
+cd FroYo
 ```
 
 2. Navigate to the Capacitor directory:
@@ -216,7 +216,7 @@ pnpm build:app
 ### 💬 Getting Help
 
 - **Issues** - For bugs, features, and questions
-- **Wiki** - Check the [project wiki](https://github.com/RockinChaos/Shiru/wiki) for documentation
+- **Wiki** - Check the [project wiki](https://github.com/Emekalim/FroYoflix_v2/wiki) for documentation
 
 ### 🏆 Recognition
 
@@ -224,11 +224,11 @@ All contributors are valued! Your contributions will be recognized in release no
 
 ## ⚖️ Legal
 
-By contributing to Shiru, you agree that your contributions will be licensed under the same license as the project.
+By contributing to FroYo, you agree that your contributions will be licensed under the same license as the project.
 
 > [!IMPORTANT]
 > All contributions must comply with applicable laws. Do not include or promote pirated content, copyrighted material without permission, or any illegal activity. Contributors are expected to respect intellectual property rights.
 
 ---
 
-Thank you for contributing to Shiru! Your help makes this project better for everyone. 🎉
+Thank you for contributing to FroYo! Your help makes this project better for everyone. 🎉

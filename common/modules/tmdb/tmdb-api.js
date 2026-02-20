@@ -111,7 +111,7 @@ export async function fetchRecommendations(tmdbId, mediaType) {
 
     // Check cache first
     const cached = getFromCache(cacheKey)
-    if (cached) {
+    if (cached && cached.length > 0 && cached[0].coverImage) {
         console.log('[TMDB API] Using cached recommendations')
         return cached
     }
@@ -123,16 +123,48 @@ export async function fetchRecommendations(tmdbId, mediaType) {
         return []
     }
 
-    // Transform to consistent format
+    // Transform to consistent Media format (AniList compatible)
     const recommendations = data.results.slice(0, 20).map(item => ({
+        id: item.id, // Using TMDB ID as media ID for now, might need separate handling if collisions occur but cache handles source
+        title: {
+            userPreferred: item.name || item.title,
+            romaji: item.name || item.title,
+            english: item.name || item.title,
+            native: item.name || item.title
+        },
+        coverImage: {
+            extraLarge: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
+            large: item.poster_path ? `https://image.tmdb.org/t/p/w342${item.poster_path}` : null,
+            medium: item.poster_path ? `https://image.tmdb.org/t/p/w185${item.poster_path}` : null,
+            color: null
+        },
+        bannerImage: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : null,
+        format: mediaType === 'tv' ? 'TV' : 'MOVIE',
+        type: mediaType === 'tv' ? 'TV' : 'MOVIE',
+        status: 'UNKNOWN', // TMDB specific status requires details fetch, default to UNKNOWN or assume release based on date
+        description: item.overview,
+        seasonYear: (item.first_air_date || item.release_date) ? parseInt((item.first_air_date || item.release_date).substring(0, 4)) : null,
+        startDate: (item.first_air_date || item.release_date) ? {
+            year: parseInt((item.first_air_date || item.release_date).substring(0, 4)),
+            month: parseInt((item.first_air_date || item.release_date).substring(5, 7)) || 1,
+            day: parseInt((item.first_air_date || item.release_date).substring(8, 10)) || 1
+        } : null,
+        episodes: mediaType === 'tv' ? null : 1, // Only know for sure for movies
+        duration: null,
+        genres: [], // Genre IDs available but names require map, skipping for now as not strictly needed for card
+        averageScore: item.vote_average ? Math.round(item.vote_average * 10) : null,
+        popularity: item.popularity,
+        isAdult: item.adult || false,
+        source: 'TMDB',
         tmdbId: item.id,
-        title: item.name || item.title,
-        posterPath: item.poster_path,
-        backdropPath: item.backdrop_path,
-        overview: item.overview,
-        voteAverage: item.vote_average,
-        releaseDate: item.first_air_date || item.release_date,
-        mediaType: mediaType
+        // Stub fields to prevent UI crashes
+        mediaListEntry: null,
+        relations: { edges: [] },
+        recommendations: { edges: [] },
+        stats: { scoreDistribution: [] },
+        airingSchedule: { nodes: [] },
+        nextAiringEpisode: null,
+        tags: []
     }))
 
     // Cache the results

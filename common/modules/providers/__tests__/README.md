@@ -64,7 +64,7 @@ node run-all.mjs
 
 ### Run all tests:
 ```bash
-cd /Users/franklin/Documents/Workspace/PersonalProjects/Shiru-6.4.8/common/modules/providers/__tests__
+cd /Users/franklin/Documents/Workspace/PersonalProjects/FroYo-6.4.8/common/modules/providers/__tests__
 node run-all.mjs
 ```
 
@@ -81,7 +81,7 @@ node mappers.test.mjs
 When all tests pass:
 ```
 ╔════════════════════════════════════════════════════════╗
-║        SHIRU PROVIDER ABSTRACTION TEST SUITE           ║
+║        FroYo PROVIDER ABSTRACTION TEST SUITE           ║
 ╚════════════════════════════════════════════════════════╝
 
 ┌─ REGISTRY TESTS ──────────────────────────────────────┐

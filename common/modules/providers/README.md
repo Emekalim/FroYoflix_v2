@@ -270,7 +270,7 @@ index.js (registry)
 
 ## Integration Points
 
-To use the provider system elsewhere in Shiru:
+To use the provider system elsewhere in FroYo:
 
 ```javascript
 // In search.js

@@ -104,7 +104,7 @@
     donate: {
       name: 'Donate',
       icon: Heart,
-      action: () => IPC.emit('open', 'https://github.com/sponsors/RockinChaos/'),
+      action: () => IPC.emit('open', 'https://github.com/sponsors/Emekalim/'),
       sidebar: true
     }
   }

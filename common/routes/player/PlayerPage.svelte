@@ -28,6 +28,7 @@
   import { click } from "@/modules/click.js";
   import VideoDeband from "video-deband";
   import Helper from "@/modules/helper.js";
+  import Hls from "hls.js";
 
   import { w2gEmitter, state } from "@/routes/w2g/WatchTogetherPage.svelte";
   import ManagerModal from "@/modals/manager/ManagerModal.svelte";
@@ -74,6 +75,7 @@
     SlidersVertical,
     SquarePen,
     Milestone,
+    Settings,
   } from "lucide-svelte";
   import Debug from "debug";
   const debug = Debug("ui:player");
@@ -299,7 +301,9 @@
 
   function updateFiles(files) {
     if (files?.length) {
-      videos = files.filter((file) => videoRx.test(file.name));
+      videos = files.filter(
+        (file) => videoRx.test(file.name) && !file.name.startsWith("._"),
+      );
       if (videos?.length) {
         if (subs) {
           subs.files = files || [];
@@ -315,6 +319,23 @@
         subs.destroy();
         subs = null;
       }
+    }
+  }
+
+  let currentTranscodeHash = null;
+
+  async function stopTranscode(hash) {
+    if (!hash || !ELECTRON) return;
+    try {
+      const port = await window.electron.getTranscoderPort();
+      if (port) {
+        await fetch(`http://localhost:${port}/stop?hash=${hash}`, {
+          method: "DELETE",
+        });
+        console.log("[Player] Stopped transcoding for hash:", hash);
+      }
+    } catch (e) {
+      console.error("[Player] Failed to stop transcoding:", e);
     }
   }
 
@@ -342,8 +363,14 @@
   }
   $: loadDeband($settings.playerDeband, video);
 
+  let hls;
   let externalReadyListener;
   async function handleCurrent(file) {
+    // Skip hidden files
+    if (file?.name?.startsWith("._")) {
+      console.log("[PlayerPage] Skipping hidden file:", file.name);
+      return;
+    }
     paused = true;
     canPlay = false;
     video?.pause?.();
@@ -378,10 +405,134 @@
       return;
     }
     if (!externalPlayback) {
-      src = file.url;
-      subs = new Subtitles(video, files, current, handleHeaders);
-      video.load();
-      await loadAnimeProgress();
+      try {
+        // CRITICAL CLEANUP: Destroy previous HLS and detach media
+        if (hls) {
+          hls.destroy();
+          hls = null;
+        }
+        // Force clear video src to stop previous playback/loading
+        src = "";
+        if (video) {
+          video.removeAttribute("src");
+          video.load(); // triggers emptying of media element
+        }
+
+        // Check if file needs HLS transcoding (unsupported formats)
+        const needsTranscoding =
+          file.url?.startsWith("file://") &&
+          ["mkv", "avi", "wmv", "flv", "ts", "m2ts"].some((ext) =>
+            file.name?.toLowerCase().endsWith(`.${ext}`),
+          );
+
+        if (needsTranscoding && ELECTRON) {
+          try {
+            // Get transcoder port
+            const port = await window.electron.getTranscoderPort();
+            if (!port) throw new Error("Transcoder not available");
+
+            // Request HLS URL from transcoder
+            const filePath = decodeURIComponent(
+              file.url.replace("file://", ""),
+            );
+            const response = await fetch(
+              `http://localhost:${port}/init?file=${encodeURIComponent(filePath)}`,
+            );
+            const { url: hlsUrl, hash } = await response.json();
+
+            // Stop previous transcode if exists (e.g. switching episodes)
+            if (currentTranscodeHash && currentTranscodeHash !== hash) {
+              stopTranscode(currentTranscodeHash);
+            }
+            currentTranscodeHash = hash;
+
+            // Initialize hls.js with optimized buffer settings and resilience
+            hls = new Hls({
+              debug: false,
+              maxBufferLength: 30,
+              maxMaxBufferLength: 60,
+              enableWorker: true,
+              lowLatencyMode: false,
+              maxBufferHole: 0.5, // Allow small unexpected gaps (0.5s)
+              highBufferWatchdogPeriod: 3,
+              nudgeOffset: 0.2, // Nudge amount when stalling
+              nudgeMaxRetry: 10,
+              fragLoadingMaxRetry: 10,
+              manifestLoadingMaxRetry: 10,
+            });
+
+            hls.loadSource(hlsUrl);
+            hls.attachMedia(video);
+
+            // Error handling
+            hls.on(Hls.Events.ERROR, (event, data) => {
+              console.error(
+                `[HLS] Error: ${data.formatted || data.type}`,
+                data,
+              );
+
+              // Auto-recover from buffer stalls by nudging
+              if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
+                console.warn("[HLS] Buffer stalled, attempting to nudge...");
+                // Nudging is handled internally by hls.js with nudgeOffset, but we can force it if needed
+                // video.currentTime += 0.1;
+              }
+
+              if (data.fatal) {
+                console.error("[HLS] Fatal error type:", data.type);
+                console.error("[HLS] Fatal error details:", data.details);
+                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                  hls.startLoad();
+                } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                  hls.recoverMediaError();
+                } else {
+                  toast.error("HLS playback failed");
+                }
+              }
+            });
+
+            hls.on(Hls.Events.BUFFER_STALLED, (event, data) => {
+              console.warn("[HLS] Buffer stalled", data);
+            });
+
+            hls.on(Hls.Events.FRAG_LOAD_ERROR, (event, data) => {
+              console.error("[HLS] Fragment load error", data);
+            });
+
+            subs = new Subtitles(video, files, current, handleHeaders);
+            await loadAnimeProgress();
+          } catch (e) {
+            console.error("[HLS] Transcoding failed:", e);
+            toast.error("Failed to transcode video");
+            // Fallback to direct playback
+            src = file.url;
+            subs = new Subtitles(video, files, current, handleHeaders);
+            video.load();
+            await loadAnimeProgress();
+          }
+        } else {
+          // Direct playback for supported formats
+          src = file.url;
+          subs = new Subtitles(video, files, current, handleHeaders);
+          video.load();
+          await loadAnimeProgress();
+        }
+      } catch (e) {
+        console.error("[Player] setCurrent failed:", e);
+        toast.error("Failed to load video");
+
+        // Reset state to prevent ghost events
+        if (hls) {
+          hls.destroy();
+          hls = null;
+        }
+        src = "";
+        video.removeAttribute("src");
+        current = null;
+      } finally {
+        // Ensure external player state is synced if needed
+        if (!externalPlayback) externalPlaying = false;
+      }
     } else externalPlaying = false;
     emit("current", current); // #handleCurrent in MediaHandler
     if (externalPlayback) {
@@ -400,6 +551,62 @@
       current: file,
       external: settings.value.enableExternal || launchExternal,
     });
+  }
+
+  let currentQuality = "original";
+  const qualityOptions = [
+    { label: "Original", value: "original" },
+    { label: "1080p", value: "1080p" },
+    { label: "720p", value: "720p" },
+    { label: "480p", value: "480p" },
+  ];
+
+  async function changeQuality(quality) {
+    if (currentQuality === quality) return;
+    currentQuality = quality;
+    const time = video.currentTime;
+    const wasPaused = paused; // Use local state
+
+    // Destroy previous HLS
+    if (hls) {
+      hls.destroy();
+      hls = null;
+    }
+
+    // Re-init with new quality
+    if (ELECTRON && current?.url?.startsWith("file://")) {
+      try {
+        const port = await window.electron.getTranscoderPort();
+        const filePath = decodeURIComponent(current.url.replace("file://", ""));
+        const response = await fetch(
+          `http://localhost:${port}/init?file=${encodeURIComponent(filePath)}&quality=${quality}`,
+        );
+        const { url: hlsUrl } = await response.json();
+
+        // Clear src
+        src = "";
+        video.removeAttribute("src");
+
+        hls = new Hls({
+          debug: false,
+          maxBufferLength: 30,
+          maxMaxBufferLength: 60,
+          enableWorker: true,
+          lowLatencyMode: false,
+        });
+
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.currentTime = time;
+          if (!wasPaused) video.play();
+        });
+      } catch (e) {
+        console.error("Quality switch failed:", e);
+        toast.error("Failed to switch quality");
+      }
+    }
   }
 
   export let media;
@@ -1880,12 +2087,12 @@
       } else {
         activity.buttons = [
           {
-            label: "Watch on Shiru",
-            url: `shiru://anime/${np.media?.id}`,
+            label: "Watch on FroYo",
+            url: `froyo://anime/${np.media?.id}`,
           },
           {
-            label: "Download Shiru",
-            url: "https://github.com/RockinChaos/Shiru/releases/latest",
+            label: "Download FroYo",
+            url: "https://github.com/Emekalim/FroYoflix_v2/releases/latest",
           },
         ];
       }
@@ -1896,14 +2103,14 @@
         state: "Exploring the anime library...",
         assets: {
           large_image: "icon",
-          large_text: "https://github.com/RockinChaos/Shiru",
+          large_text: "https://github.com/Emekalim/FroYoflix_v2",
           small_image: "searching",
-          small_text: "Browsing anime on Shiru",
+          small_text: "Browsing anime on FroYo",
         },
         buttons: [
           {
-            label: "Download Shiru",
-            url: "https://github.com/RockinChaos/Shiru/releases/latest",
+            label: "Download FroYo",
+            url: "https://github.com/Emekalim/FroYoflix_v2/releases/latest",
           },
         ],
         instance: true,
@@ -2041,7 +2248,11 @@
       {/if}
     </div>
   {/if}
-  <ManagerModal playing={current} files={playableFiles} {playFile} />
+  <ManagerModal
+    playing={current}
+    files={playableFiles.filter((f) => !f.name.startsWith("._"))}
+    {playFile}
+  />
   <div class="top z-40 row d-title">
     <div class="stats pl-20 col-4 d-title">
       <div class="font-weight-bold overflow-hidden text-truncate font-scale-23">
@@ -2428,6 +2639,49 @@
           >
             <FilePlus2 size="2rem" strokeWidth={2.5} />
             <div class="ml-10">Add Subtitles</div>
+          </div>
+          <div
+            class="dropdown dropleft with-arrow pointer bg-dark option font-size-16 bd-highlight"
+            class:d-none={externalPlayback}
+          >
+            <div
+              role="button"
+              class="d-flex align-items-center justify-content-center py-5 px-10"
+              aria-label="Quality"
+              title="Quality"
+              use:click={toggleDropdown}
+            >
+              <Settings size="2rem" strokeWidth={2.5} /><span class="ml-10"
+                >Quality</span
+              >
+            </div>
+            <div
+              class="dropdown-menu dropdown-menu-right text-capitalize text-nowrap rounded"
+            >
+              <div class="custom-radio overflow-hidden pt-5 pl-5">
+                {#each qualityOptions as option}
+                  <input
+                    name="quality-radio-set"
+                    type="radio"
+                    id="quality-{option.value}-radio"
+                    tabindex="-1"
+                    value={option.value}
+                    checked={currentQuality === option.value}
+                  />
+                  <label
+                    for="quality-{option.value}-radio"
+                    use:click={(target) => {
+                      changeQuality(option.value);
+                      setTimeout(() => {
+                        toggleDropdown(target);
+                        showOptions.set(false);
+                      });
+                    }}
+                    class="pb-5">{option.label}</label
+                  >
+                {/each}
+              </div>
+            </div>
           </div>
           <div
             class="dropdown dropleft with-arrow pointer bg-dark option font-size-16 bd-highlight"

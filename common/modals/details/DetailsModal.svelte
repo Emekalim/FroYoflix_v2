@@ -152,16 +152,37 @@
   let tmdbRecommendations = [];
   let tmdbExternalIds = null;
   $: if (staticMedia?.source === "TMDB" && staticMedia?.tmdbId) {
+    tmdbRecommendations = []; // Clear previous recommendations immediately
+    const currentTmdbId = staticMedia.tmdbId;
     fetchRecommendations(
-      staticMedia.tmdbId,
+      currentTmdbId,
       staticMedia.format === "TV" ? "tv" : "movie",
     ).then((recs) => {
+      // Prevent race condition: ensure we are still looking at the same media
+      if (staticMedia?.tmdbId !== currentTmdbId) return;
+
+      // Update cache so SmallCard can find the data IMMEDIATELY
+      if (recs && recs.length > 0) {
+        // Create a map of IDs to media objects
+        const updateMap = {};
+        recs.forEach((rec) => {
+          updateMap[rec.id] = rec;
+        });
+        // Merge into existing cache synchronously
+        mediaCache.update((currentCache) => ({
+          ...currentCache,
+          ...updateMap,
+        }));
+      }
+      // Set local state matching the items we just put in cache
       tmdbRecommendations = recs;
     });
+    const currentTmdbIdExt = staticMedia.tmdbId;
     fetchExternalIds(
-      staticMedia.tmdbId,
+      currentTmdbIdExt,
       staticMedia.format === "TV" ? "tv" : "movie",
     ).then((ids) => {
+      if (staticMedia?.tmdbId !== currentTmdbIdExt) return;
       tmdbExternalIds = ids;
     });
   }
@@ -811,39 +832,16 @@
                 </ToggleList>
               {/if}
               {#if staticMedia?.source === "TMDB" && tmdbRecommendations.length > 0}
-                <div
-                  class="w-full d-flex flex-row align-items-center pt-20 mt-10"
+                <ToggleList
+                  list={tmdbRecommendations}
+                  title="Recommendations"
+                  promise={Promise.resolve()}
+                  let:item
                 >
-                  <hr class="w-full" />
-                  <div
-                    class="font-size-18 font-weight-semi-bold px-20 text-white"
-                  >
-                    Recommendations
+                  <div class="small-card">
+                    <SmallCard data={item} />
                   </div>
-                  <hr class="w-full" />
-                </div>
-                <div class="d-flex flex-wrap gap-10 pt-20">
-                  {#each tmdbRecommendations.slice(0, 10) as rec}
-                    <div
-                      class="tmdb-rec-card bg-dark-light rounded p-10"
-                      style="width: 150px;"
-                    >
-                      {#if rec.posterPath}
-                        <img
-                          src="https://image.tmdb.org/t/p/w200{rec.posterPath}"
-                          alt={rec.title}
-                          class="w-full rounded"
-                        />
-                      {/if}
-                      <div class="font-size-12 mt-5 text-truncate">
-                        {rec.title}
-                      </div>
-                      <div class="font-size-10 text-muted">
-                        ★ {rec.voteAverage?.toFixed(1) || "N/A"}
-                      </div>
-                    </div>
-                  {/each}
-                </div>
+                </ToggleList>
               {:else if staticMedia?.source !== "TMDB"}
                 {#await recommendations then res}
                   {@const media = res?.data?.Media}
