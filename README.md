@@ -370,7 +370,7 @@ FroYoflix/
 │   │   ├── anilist.js         # AniList GraphQL client (45 dependents)
 │   │   ├── torrent.js         # IPC bridge to client/
 │   │   └── util.js            # General utilities (55 dependents)
-│   └── views/                 # Page-level views (Home, Search, Player, etc.)
+│   └── routes/                # Page-level views (Home, Search, Player, etc.)
 │
 ├── client/                    # WebTorrent client wrapper
 │   └── core/webtorrent.js     # TorrentClient — all IPC via send()

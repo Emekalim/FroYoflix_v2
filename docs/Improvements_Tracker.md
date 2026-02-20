@@ -26,7 +26,7 @@ This document tracks major feature implementations, architectural improvements, 
 -   **Status:** **Implemented**.
 -   **Implementation:**
     -   Transcode artifacts stored in `temp/froyo-transcode/{hash}`.
-    -   Stateless stateless serving of HLS playlists via `transcoder.js`.
+    -   Stateless serving of HLS playlists via `transcoder.js`.
     -   Persistent caching using content-based hashing (`filepath` + `mtime`).
 
 ### 4. Search & Performance Optimizations

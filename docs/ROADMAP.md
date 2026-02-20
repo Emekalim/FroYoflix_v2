@@ -11,7 +11,7 @@ Future features and investigations under consideration. These are not committed 
     -   Background Scanner Service.
     -   Metadata Linking (Auto-match files to TMDB/AniList).
     -   Safe Renaming Utility.
-    -   **Persistent Transcode Storage**: Setting to save repaired/transcoded files alongside originals to prevent re-encoding. Include setting to allow user toggle on or of keeping repaired/trasncoded files, alongside originals.
+    -   **Persistent Transcode Storage**: Setting to save repaired/transcoded files alongside originals to prevent re-encoding. Include setting to allow user toggle on or off keeping repaired/transcoded files, alongside originals.
 
 ### 2. Advanced Subtitle Support
 **Goal:** Client-side rendering of ASS/SSA/PGS subtitles.
@@ -19,7 +19,7 @@ Future features and investigations under consideration. These are not committed 
 
 ### 3. Pirate Bay Query Formatting
 **Goal:** Optimize search queries for non-anime content.
--   **Plan:** [Pirate Bay Implementation Plan](PIRATE_BAY_IMPLEMENTATION_PLAN.md)
+-   **Plan:** [Pirate Bay Implementation Plan](archive/PIRATE_BAY_IMPLEMENTATION_PLAN.md)
 -   **Details:** Update `worker.js` and `piratebaysrc` to format queries differently for TV ("Show S01E01") vs Movies ("Movie Year").
 
 ### 4. Jobs & Repair UI
@@ -66,7 +66,7 @@ Future features and investigations under consideration. These are not committed 
 -   **Proposed Solution (On-Demand Transcoding):**
     -   Detect seek requests (via HLS playlist query or custom API).
     -   Kill current `ffmpeg` process.
-    -   Start new `ffmpeg` process with seeek parameter: `-ss <timestamp>`.
+    -   Start new `ffmpeg` process with seek parameter: `-ss <timestamp>`.
 -   **Challenges:**
     1.  **Playlist Continuity:**
         -   The standard HLS player expects a contiguous playlist. If we jump, we must insert `#EXT-X-DISCONTINUITY` tag.
