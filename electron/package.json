@@ -91,7 +91,11 @@
       "entitlements": "buildResources/entitlements.mac.plist",
       "target": [
         {
-          "arch": "universal",
+          "arch": "x64",
+          "target": "default"
+        },
+        {
+          "arch": "arm64",
           "target": "default"
         }
       ]
