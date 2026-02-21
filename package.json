@@ -55,6 +55,7 @@
       "@paymoapp/electron-shutdown-handler",
       "bufferutil",
       "electron",
+      "ffmpeg-static",
       "fs-native-extensions",
       "fsctl",
       "node-datachannel",
