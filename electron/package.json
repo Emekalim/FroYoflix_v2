@@ -1,6 +1,6 @@
 {
   "name": "froyo",
-  "version": "6.5.0",
+  "version": "1.0.0",
   "license": "GPL-3.0-or-later",
   "private": true,
   "author": "Emekalim <Emekalim@users.noreply.github.com>",
@@ -86,13 +86,17 @@
       "category": "public.app-category.video",
       "darkModeSupport": true,
       "icon": "buildResources/icon.icns",
-      "hardenedRuntime": true,
+      "hardenedRuntime": false,
       "notarize": false,
       "entitlements": "buildResources/entitlements.mac.plist",
       "target": [
         {
-          "arch": "universal",
-          "target": "default"
+          "arch": "x64",
+          "target": "zip"
+        },
+        {
+          "arch": "arm64",
+          "target": "zip"
         }
       ]
     },
