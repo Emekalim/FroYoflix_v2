@@ -6,6 +6,9 @@ on:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: write
+
 env:
   NODE_VERSION: '22.21.1'
   PNPM_VERSION: '10.15.1'
