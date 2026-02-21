@@ -86,17 +86,17 @@
       "category": "public.app-category.video",
       "darkModeSupport": true,
       "icon": "buildResources/icon.icns",
-      "hardenedRuntime": true,
+      "hardenedRuntime": false,
       "notarize": false,
       "entitlements": "buildResources/entitlements.mac.plist",
       "target": [
         {
           "arch": "x64",
-          "target": "default"
+          "target": "zip"
         },
         {
           "arch": "arm64",
-          "target": "default"
+          "target": "zip"
         }
       ]
     },
