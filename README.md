@@ -22,6 +22,7 @@
   <a href="https://github.com/Emekalim/FroYoflix_v2/releases/latest/"><img alt="Latest Release" src="https://img.shields.io/github/v/release/Emekalim/FroYoflix_v2?style=flat-square&color=green"></a>
   <a href="https://github.com/Emekalim/FroYoflix_v2/releases/latest/"><img alt="Downloads" src="https://img.shields.io/github/downloads/Emekalim/FroYoflix_v2/total?style=flat-square&color=blue"></a>
   <a href="https://github.com/Emekalim/FroYoflix_v2/commits"><img alt="Last Commit" src="https://img.shields.io/github/last-commit/Emekalim/FroYoflix_v2?style=flat-square"></a>
+  <a href="https://github.com/Emekalim/FroYoflix_v2/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/Emekalim/FroYoflix_v2?style=flat-square&color=yellow"></a>
 </p>
 
 > [!IMPORTANT]
