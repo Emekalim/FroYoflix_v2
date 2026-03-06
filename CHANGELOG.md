@@ -21,6 +21,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - `safeCleanup()` method in `transcoder.js` to kill orphaned FFmpeg processes from previous app runs on startup.
 - `DELETE /stop` transcoder endpoint and resumption logic to restart a stalled transcode if a playlist exists but the process is dead.
 - `intentionalStops` set in the `Transcoder` class to distinguish user-initiated stops from real decoder crashes.
+- Jobs Dashboard UI with tabbed interface (Repairs/Downloads) showing background video repair processes with real-time progress tracking.
+- Repair process visibility: Active, queued, completed, and failed repair categorization with individual progress cards displaying name, status, progress bar, speed, and ETA.
+- Cache management widget with "Repair Cache Size" display and confirmation modal for clearing cached repaired files with 5-second timeout countdown.
+- HandBrake video repair queue with regex-based progress parsing of output to extract ETA and speed metrics, supporting single-job concurrency with IPC message bridging.
+- Backend IPC handlers (`get-active-repairs`, `get-repair-cache-size`, `clear-repair-cache`) with real-time progress broadcast via `webContents.send()` every 1 second.
+- Frontend Svelte store (`common/modules/jobs.js`) for repair state management with native `ipcRenderer.on()` event listening and 500ms polling fallback.
+- Repair card responsive layout with fixed-width columns (Name: 400px, Status: 80px, Progress: flex-1, Speed/ETA: 90px/110px) and proper text truncation for hash display.
 
 ### Changed
 
@@ -43,3 +50,4 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - `fluent-ffmpeg` missing in the production build because it was incorrectly listed in webpack `externals`, causing an immediate launch crash.
 - FFmpeg binary not found in the packed app (`ENOENT`); resolved by adding the binary to `extraResources` in `electron/package.json` and updating `transcoder.js` to use `process.resourcesPath`.
 - Unhandled promise rejection from `electron-updater`'s `checkForUpdates()` crashing the app on launch; resolved by adding `.catch(() => {})` in `updater.js`.
+- Cache widget misalignment in the Jobs/Repairs tab where the "Clear" button and "Repair Cache Size" text were not vertically aligned. Fixed by adding `actionClass="cache-action"` prop to ConfirmButton, positioning the Clear button at `top: 50px` with modal buttons appearing seamlessly above it (`top: 20px`), anchoring the cache size text with `align-self: flex-start`, unifying button styling (Clear button now uses `btn-outline-secondary` to match Cancel button), setting button widths to 120px for consistency, and applying CSS `position: absolute !important` to blockify the `display: contents` action-container per CSS spec.

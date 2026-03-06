@@ -464,8 +464,23 @@
             hls.loadSource(hlsUrl);
             hls.attachMedia(video);
 
-            // Error handling
             hls.on(Hls.Events.ERROR, (event, data) => {
+              if (
+                data.type === Hls.ErrorTypes.NETWORK_ERROR &&
+                data.response?.code === 404
+              ) {
+                console.warn(
+                  "[HLS] Received 404 (Repairing). Suppressing retries.",
+                );
+                hls.stopLoad();
+                hls.destroy();
+                hls = null;
+                toast.info("Video is currently being repaired", {
+                  description: "Check the Jobs dashboard for progress",
+                });
+                return;
+              }
+
               console.error(
                 `[HLS] Error: ${data.formatted || data.type}`,
                 data,

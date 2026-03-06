@@ -4,6 +4,30 @@ This document tracks major feature implementations, architectural improvements, 
 
 ## ✅ Completed Improvements
 
+### Jobs & Repair UI
+**Goal:** Implement background process visibility (HandBrake video repairs) and storage cache management with polished, aligned UI.
+-   **Plan:** [Implementation Plan](file:///Users/franklin/.gemini/antigravity/brain/f3bd16ed-4554-46e5-94dd-061d53c88ba8/implementation_plan.md)
+-   **Status:** **COMPLETED**
+-   **Key Implementations:**
+    -   `electron/src/main/transcoder.js`: Added regex progress parsing of HandBrake output to gather ETA/Speed % and added a single-job concurrency queue.
+    -   `electron/src/main/app.js`: Added backend IPC handlers `get-active-repairs`, `get-repair-cache-size`, and `clear-repair-cache`. Broadcast repair-progress every 1 second via `webContents.send()`.
+    -   `common/modules/jobs.js`: Created frontend Svelte store with proper event listener using native `ipcRenderer.on()` and 500ms polling fallback. Implemented repair categorization (active/queued/completed/errors).
+    -   `common/routes/torrentManager/TorrentPage.svelte`: Migrated to "Jobs" tabbed UI (Repairs/Downloads). Implemented responsive column layout: Name (400px), Status (80px), Progress (flex-1), Speed/ETA (90px/110px fixed). Cache widget positioned on title line with `visibility: hidden` for layout stability.
+    -   `common/routes/torrentManager/components/RepairCard.svelte`: Created repair progress card with centered Status text, flexible Progress bar, and truncated Name/Hash with proper vertical alignment.
+    -   `common/components/navigation/Sidebar.svelte`: Renamed "Torrents" to "Jobs" with activity icon.
+    -   **Cache Widget UI Polish:** Added `actionClass="cache-action"` prop to ConfirmButton for reliable CSS targeting. Fixed vertical alignment of Clear button (`top: 50px`) with modal buttons appearing directly above for seamless transition. Anchored "Repair Cache Size" text with `align-self: flex-start` to prevent movement when modal appears. Unified button styling (Clear button changed to `btn-outline-secondary` to match Cancel button). Set button widths to 120px for visual consistency. Applied `position: absolute !important` to action-container (blockified `display: contents` per CSS spec). Positioned modal at `top: 20px` so Cancel button aligns with Clear button position.
+-   **Deviations:**
+    - Replaced generic `fs.readdirSync` options for Node 18 compatibility during cache size calculation.
+    - Used native `ipcRenderer.on()` instead of Bridge wrapper for event listening (Bridge wrapper doesn't forward data properly).
+    - Added 500ms polling fallback to ensure continuous progress updates.
+    - Redesigned column layout to Name: 400px fixed, Status: 80px centered, Progress: flex-1 (fills remaining space), Speed/ETA: fixed widths (90px/110px).
+    - Font sizes: Name 1rem, Hash 0.9rem, Status 0.75rem to maintain readability while fitting on single lines.
+-   **Blockers/Trade-offs:**
+    - HandBrake emits progress on stdout AND stderr; managed via 1-second IPC throttles to prevent race conditions.
+    - Column alignment required matching exact widths and padding across header and content divs for visual consistency.
+-   **Related Issues/Dependencies:** N/A
+
+
 ### 1. Multi-Media Support (Media Extension Overhaul)
 **Goal:** Extend FroYo to support TV Shows, Movies, and mixed media types while preserving Anime functionality.
 -   **Core Plans:** [Media Extension Plan](archive/MEDIA_EXTENSION_PLAN.md), [TMDB Analysis](archive/TMDB_COMPATIBILITY_ANALYSIS.md)

@@ -34,6 +34,7 @@
     Users,
     Bell,
     BellDot,
+    Activity,
   } from "lucide-svelte";
 
   const btnSize = !SUPPORTS.isAndroid ? "3.1rem" : "3.6rem";
@@ -230,12 +231,12 @@
     <SidebarLink
       click={() => page.navigateTo(page.TORRENT_MANAGER)}
       _page={page.TORRENT_MANAGER}
-      icon="download"
-      text="Torrents"
+      icon="activity"
+      text="Jobs"
       css="d-sm-h-none"
       let:active
     >
-      <Download
+      <Activity
         size={btnSize}
         class="flex-shrink-0 p-5 m-5 rounded"
         strokeWidth="2.5"

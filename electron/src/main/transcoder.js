@@ -1,6 +1,6 @@
 import http from 'http'
 import { createHash } from 'crypto'
-import { statSync, existsSync, createReadStream } from 'fs'
+import { statSync, existsSync, createReadStream, rmSync } from 'fs'
 import { mkdir, rm } from 'fs/promises'
 import { join, basename } from 'path'
 import { app } from 'electron'
@@ -9,11 +9,28 @@ import ffmpeg from 'fluent-ffmpeg'
 import ffmpegStatic from 'ffmpeg-static'
 import getPort from 'get-port'
 
-// Set FFmpeg binary path
-const ffmpegBinaryPath = app.isPackaged
-    ? join(process.resourcesPath, 'bin', 'ffmpeg')
-    : ffmpegStatic
+// Resolve FFmpeg binary path
+const getFFmpegPath = () => {
+    if (app.isPackaged) {
+        return join(process.resourcesPath, 'bin', 'ffmpeg')
+    }
 
+    // In development, resolve relative to appPath
+    const appPath = app.getAppPath()
+    const possiblePaths = [
+        join(appPath, 'node_modules', 'ffmpeg-static', 'ffmpeg'),
+        join(appPath, '..', 'node_modules', 'ffmpeg-static', 'ffmpeg')
+    ]
+
+    for (const p of possiblePaths) {
+        if (existsSync(p)) return p
+    }
+
+    // Fallback if not found natively (unlikely)
+    return ffmpegStatic || 'ffmpeg'
+}
+
+const ffmpegBinaryPath = getFFmpegPath()
 console.log('[Transcoder] FFmpeg binary path:', ffmpegBinaryPath)
 ffmpeg.setFfmpegPath(ffmpegBinaryPath)
 
@@ -22,13 +39,23 @@ ffmpeg.setFfmpegPath(ffmpegBinaryPath)
  * Manages HLS transcoding via local HTTP server
  */
 export class Transcoder {
-    constructor() {
+    constructor(mainWindow = null, testOptions = {}) {
+        this.mainWindow = mainWindow
+        this.testOptions = testOptions
         this.server = null
         this.port = null
         this.tempDir = join(app.getPath('temp'), 'froyo-transcode')
         this.repairDir = join(app.getPath('temp'), 'froyo-repair') // Persistent repair storage
         this.activeTranscodes = new Map() // hash -> ffmpeg command
         this.intentionalStops = new Set() // hash -> boolean (true if stopped explicitly)
+        this.activeRepairs = new Map() // hash -> repair job state (progress, etc.)
+        this.repairQueue = [] // { filePath, hash, resolve, reject }
+        this.isRepairing = false
+        this.repairCacheTTL = 5000 // Cache size TTL in ms
+        this.lastCacheSizeUpdate = 0
+        this.cachedSize = 0
+
+
 
         // Platform-specific encoder selection
         this.encoder = this.detectEncoder()
@@ -196,17 +223,21 @@ export class Transcoder {
                     if (!existsSync(filePath)) {
                         // Get original file from query param (stateless design)
                         const originalFile = url.searchParams.get('file')
-                        if (!originalFile) {
-                            res.writeHead(400)
-                            res.end('Missing file source')
+                        // If repairing, return 404 so player halts (don't return 503 as some players spam retry)
+                        if (this.activeRepairs.has(hash)) {
+                            res.writeHead(404, { 'Retry-After': '5' })
+                            res.end('Repairing')
                             return
                         }
-
-                        // Start transcoding
                         await this.startTranscoding(originalFile, hash)
                     } else if (existsSync(filePath) && !this.activeTranscodes.has(hash)) {
                         // Resumption Logic:
                         // Playlist exists, but no process is running.
+                        if (this.activeRepairs.has(hash)) {
+                            res.writeHead(404, { 'Retry-After': '5' })
+                            res.end('Repairing')
+                            return
+                        }
                         // We need to check if the transcode was actually *completed* (has #EXT-X-ENDLIST)
                         // or if it was *interrupted* (killed by user/stop/crash).
 
@@ -218,7 +249,7 @@ export class Transcoder {
                                 console.log('[Transcoder] Found incomplete playlist with no active process. Restarting:', hash)
                                 // Get original file from query param
                                 const originalFile = url.searchParams.get('file')
-                                if (originalFile) {
+                                if (originalFile && !this.activeRepairs.has(hash)) {
                                     await this.startTranscoding(originalFile, hash)
                                 }
                             }
@@ -235,7 +266,7 @@ export class Transcoder {
                     }
 
                     if (!existsSync(filePath)) {
-                        res.writeHead(503)
+                        res.writeHead(404)
                         res.end('Transcoding timeout')
                         return
                     }
@@ -318,47 +349,201 @@ export class Transcoder {
         return possiblePaths[0] // Return default to allow error to bubble up normally
     }
 
+    // Add these properties to the Transcoder class
+    repairQueue = []
+    isRepairing = false
+
     /**
      * Repair file using HandBrakeCLI
      */
     async repairFile(filePath, hash) {
+        return new Promise((resolve, reject) => {
+            this.repairQueue.push({ filePath, hash, resolve, reject })
+
+            // Initialize basic state immediately so UI shows "Queued"
+            const fileName = basename(filePath)
+            this.activeRepairs.set(hash, {
+                id: hash,
+                name: fileName,
+                progress: 0,
+                eta: 'Pending...',
+                speed: '0 fps',
+                status: 'queued'
+            })
+
+            this.emitRepairProgress()
+            this.processRepairQueue()
+        })
+    }
+
+    emitRepairProgress() {
+        if (this.mainWindow?.webContents) {
+            const repairs = Array.from(this.activeRepairs.values())
+            console.log(`[Transcoder] Emitting repair-progress: ${repairs.length} repairs`, repairs)
+            this.mainWindow.webContents.send('repair-progress', repairs)
+        } else {
+            console.warn('[Transcoder] Cannot emit repair-progress: mainWindow or webContents not available')
+        }
+    }
+
+    async processRepairQueue() {
+        if (this.isRepairing || this.repairQueue.length === 0) return
+        this.isRepairing = true
+
+        const job = this.repairQueue.shift()
+        const { filePath, hash, resolve, reject } = job
+
         const handbrakePath = this.getHandBrakePath()
         // Save to persistent repair directory, NOT the volatile cache dir
         const outputDir = join(this.repairDir, hash)
         const outputPath = join(outputDir, 'repaired.mp4')
+        const logPath = join(outputDir, 'handbrake-debug.log')
+        const fileName = basename(filePath)
 
         console.log(`[Transcoder] Attempting repair with HandBrake: ${filePath} -> ${outputPath}`)
 
         // Ensure directory exists
-        await mkdir(outputDir, { recursive: true })
+        try {
+            await mkdir(outputDir, { recursive: true })
+        } catch (e) {
+            console.error('[Transcoder] Failed to create repair directory', e)
+            this.activeRepairs.delete(hash)
+            this.isRepairing = false
+            this.emitRepairProgress()
+            reject(e)
+            this.processRepairQueue()
+            return
+        }
 
-        return new Promise((resolve, reject) => {
-            const hb = spawn(handbrakePath, [
-                '-i', filePath,
-                '-o', outputPath,
-                '--preset', 'Fast 1080p30',
-                '--format', 'av_mp4'
-            ])
+        // Update state from queued to starting
+        const repairState = this.activeRepairs.get(hash) || { id: hash, name: fileName }
+        repairState.status = 'starting'
+        repairState.eta = 'Calculating...'
+        this.activeRepairs.set(hash, repairState)
 
-            hb.stdout.on('data', (data) => console.log(`[HandBrake] ${data}`))
-            hb.stderr.on('data', (data) => console.log(`[HandBrake] ${data}`))
+        this.emitRepairProgress()
 
-            hb.on('close', (code) => {
-                if (code === 0) {
-                    console.log('[Transcoder] Repair successful')
-                    resolve(outputPath)
-                } else {
-                    reject(new Error(`HandBrake failed with code ${code}`))
+        let hbArgs = [
+            '-i', filePath,
+            '-o', outputPath,
+            '--preset', 'Fast 1080p30',
+            '--format', 'av_mp4'
+        ]
+        if (this.testOptions.hbArgs && Array.isArray(this.testOptions.hbArgs)) {
+            hbArgs = hbArgs.concat(this.testOptions.hbArgs)
+            console.log('[Transcoder] Injected custom HB args:', this.testOptions.hbArgs.join(' '))
+        }
+
+        const hb = spawn(handbrakePath, hbArgs)
+
+        const progressRegex = /Encoding: task \d+ of \d+, (\d+(?:\.\d+)?) % \(([\d\.]+ fps).*?(?:ETA (.+?)\))?/
+
+        let lastEmit = Date.now()
+        let hasError = false
+        let outputBuffer = ''
+
+        const { createWriteStream } = await import('fs')
+        const logStream = createWriteStream(logPath, { flags: 'a' })
+        logStream.write(`\n--- Started HandBrake Repair at ${new Date().toISOString()} ---\n`)
+        logStream.write(`Command: ${hbArgs.join(' ')}\n\n`)
+
+        const processOutput = (data) => {
+            const strData = data.toString()
+            logStream.write(strData)
+
+            outputBuffer += strData
+            // Split by carriage return or newline, as HB uses \r for progress
+            const lines = outputBuffer.split(/[\r\n]+/)
+            // Keep the last partial line in the buffer
+            outputBuffer = lines.pop()
+
+            for (const line of lines) {
+                const match = line.match(progressRegex)
+                if (match) {
+                    repairState.progress = parseFloat(match[1])
+                    repairState.speed = match[2]
+                    repairState.eta = match[3]?.trim() || 'Calculating...'
+                    repairState.status = 'repairing'
+
+                    if (Date.now() - lastEmit > 1000) {
+                        this.emitRepairProgress()
+                        lastEmit = Date.now()
+                    }
+                } else if (line.includes('Error') || line.includes('FAILED')) {
+                    console.error(`[Transcoder] HandBrake error: ${line}`)
+                    hasError = true
+                } else if (line.trim().length > 0) {
+                    console.log(`[HB Debug] ${line}`)
                 }
-            })
+            }
+        }
+
+        hb.stdout.on('data', processOutput)
+        hb.stderr.on('data', processOutput)
+
+        hb.on('close', (code) => {
+            this.isRepairing = false
+            logStream.write(`\n--- HandBrake Finished with exit code ${code} at ${new Date().toISOString()} ---\n`)
+            logStream.end()
+
+            if (code === 0 && !hasError) {
+                console.log('[Transcoder] Repair successful')
+                repairState.status = 'complete'
+                repairState.progress = 100 // Force completion percentage in case it stuck
+                repairState.eta = 'Done'
+                this.emitRepairProgress()
+                // Don't delete from activeRepairs immediately; let UI show completion
+                // Clean up after a delay to allow UI to display
+                setTimeout(() => {
+                    this.activeRepairs.delete(hash)
+                    this.emitRepairProgress()
+                }, 2000)
+                resolve(outputPath)
+            } else {
+                console.error(`[Transcoder] HandBrake failed with exit code ${code}`)
+                repairState.status = 'error'
+                repairState.error = hasError ? 'HandBrake encountered an error' : `Process exited with code ${code}`
+                this.emitRepairProgress()
+                reject(new Error(repairState.error))
+            }
+
+            this.processRepairQueue() // Start next job if any
         })
+    }
+
+    /**
+     * Cancel a queued or in-progress repair
+     */
+    async cancelRepair(hash) {
+        // Remove from queue if pending
+        const queueIndex = this.repairQueue.findIndex(job => job.hash === hash)
+        if (queueIndex > -1) {
+            const job = this.repairQueue.splice(queueIndex, 1)[0]
+            job.reject(new Error('Repair cancelled by user'))
+        }
+
+        // Clean up from active repairs
+        this.activeRepairs.delete(hash)
+
+        // Clean up partial repair file
+        const repairPath = join(this.repairDir, hash)
+        try {
+            if (existsSync(repairPath)) {
+                rmSync(repairPath, { recursive: true, force: true })
+                console.log(`[Transcoder] Cleaned up partial repair for ${hash}`)
+            }
+        } catch (e) {
+            console.warn(`[Transcoder] Could not clean up partial repair for ${hash}:`, e)
+        }
+
+        this.emitRepairProgress()
     }
 
     /**
      * Start FFmpeg transcoding process
      */
     async startTranscoding(filePath, hash, isRetry = false) {
-        if (this.activeTranscodes.has(hash)) return // Already running
+        if (this.activeTranscodes.has(hash) || this.activeRepairs.has(hash)) return // Already running or repairing
 
         const cacheDir = join(this.tempDir, hash)
 
@@ -426,8 +611,18 @@ export class Transcoder {
                 }
             }
 
+            let inputArgs = this.encoder !== 'libx264' && !useRepaired ? ['-hwaccel auto'] : []
+            if (this.testOptions.ffmpegInputArgs && Array.isArray(this.testOptions.ffmpegInputArgs)) {
+                inputArgs = inputArgs.concat(this.testOptions.ffmpegInputArgs)
+                console.log('[Transcoder] Injected custom FFmpeg input args:', this.testOptions.ffmpegInputArgs.join(' '))
+            }
+            if (this.testOptions.ffmpegOutputArgs && Array.isArray(this.testOptions.ffmpegOutputArgs)) {
+                outputOptions.push(...this.testOptions.ffmpegOutputArgs)
+                console.log('[Transcoder] Injected custom FFmpeg output args:', this.testOptions.ffmpegOutputArgs.join(' '))
+            }
+
             const command = ffmpeg(inputPath)
-                .inputOptions(this.encoder !== 'libx264' && !useRepaired ? ['-hwaccel auto'] : [])
+                .inputOptions(inputArgs)
                 .outputOptions(outputOptions)
                 .output(join(cacheDir, 'playlist.m3u8'))
                 .on('start', (cmd) => {

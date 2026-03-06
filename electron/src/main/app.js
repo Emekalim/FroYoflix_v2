@@ -4,7 +4,7 @@ import process from 'node:process'
 import { toXmlString } from 'powertoast'
 import { youtubeServer } from './youtube.js'
 import Jimp from 'jimp'
-import fs from 'fs'
+import fs, { readdirSync, statSync, rmSync } from 'fs'
 
 import { BrowserWindow, MessageChannelMain, Notification, Tray, Menu, nativeImage, app, dialog, ipcMain, powerMonitor, shell, session } from 'electron'
 import electronShutdownHandler from '@paymoapp/electron-shutdown-handler'
@@ -67,9 +67,12 @@ export default class App {
   close = false
   ready = false
   notifications = {}
-  transcoder = new Transcoder()
+  transcoder = null
 
   constructor() {
+    // Initialize transcoder with main window reference
+    this.transcoder = new Transcoder(this.mainWindow)
+
     this.mainWindow.setMenuBarVisibility(false)
     this.mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     if (development) this.mainWindow.once('ready-to-show', () => this.showAndFocus(true))
@@ -97,6 +100,98 @@ export default class App {
       console.log('[Main] Transcoder started on port:', port)
     })
     ipcMain.handle('get-transcoder-port', () => this.transcoder.port)
+
+    // Repair Management IPC endpoints
+    ipcMain.handle('get-active-repairs', () => Array.from(this.transcoder.activeRepairs.values()))
+
+    ipcMain.handle('get-repair-cache-size', async () => {
+      try {
+        // Use memoization to avoid expensive directory traversal every 5 seconds
+        const now = Date.now()
+        if (now - this.transcoder.lastCacheSizeUpdate < this.transcoder.repairCacheTTL) {
+          return this.transcoder.cachedSize
+        }
+
+        let totalSize = 0
+        const items = readdirSync(this.transcoder.repairDir, { withFileTypes: true })
+        for (const item of items) {
+          if (item.isDirectory()) {
+            // Hash directory
+            const hashDir = join(this.transcoder.repairDir, item.name)
+            const files = readdirSync(hashDir, { withFileTypes: true })
+            for (const file of files) {
+              if (file.isFile()) {
+                totalSize += statSync(join(hashDir, file.name)).size
+              }
+            }
+          } else if (item.isFile()) {
+            totalSize += statSync(join(this.transcoder.repairDir, item.name)).size
+          }
+        }
+
+        // Update cache
+        this.transcoder.cachedSize = totalSize
+        this.transcoder.lastCacheSizeUpdate = now
+        return totalSize
+      } catch (e) {
+        console.error('[RepairManager] Error calculating cache size:', e)
+        return 0
+      }
+    })
+
+    ipcMain.handle('clear-repair-cache', async () => {
+      try {
+        // Don't delete folders that have active repairs
+        const activeHashes = new Set(this.transcoder.activeRepairs.keys())
+        const folders = readdirSync(this.transcoder.repairDir, { withFileTypes: true })
+
+        let clearedSpace = 0
+        for (const folder of folders) {
+          if (folder.isDirectory() && !activeHashes.has(folder.name)) {
+            const folderPath = join(this.transcoder.repairDir, folder.name)
+            rmSync(folderPath, { recursive: true, force: true })
+            clearedSpace++
+          }
+        }
+
+        // Clear cache TTL so next query recalculates
+        this.transcoder.lastCacheSizeUpdate = 0
+        return { success: true, clearedCount: clearedSpace }
+      } catch (e) {
+        console.error('[RepairManager] Error clearing repair cache:', e)
+        return { success: false, error: e.message }
+      }
+    })
+
+    // Cancel/stop repair handler
+    ipcMain.handle('cancel-repair', async (event, hash) => {
+      try {
+        await this.transcoder.cancelRepair(hash)
+        return { success: true }
+      } catch (e) {
+        console.error('[RepairManager] Error cancelling repair:', e)
+        return { success: false, error: e.message }
+      }
+    })
+
+    // Set up repair progress broadcast via IPC
+    ipcMain.on('request-repair-progress', (event) => {
+      const repairs = Array.from(this.transcoder.activeRepairs.values())
+      console.log(`[Main] Sending repair-progress via reply: ${repairs.length} repairs`)
+      event.reply('repair-progress', repairs)
+    })
+
+    // Auto-broadcast repairs every second
+    setInterval(() => {
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        const repairs = Array.from(this.transcoder.activeRepairs.values())
+        if (repairs.length > 0) {
+          console.log(`[Main] Broadcasting repair-progress: ${repairs.length} repairs`)
+          this.mainWindow.webContents.send('repair-progress', repairs)
+        }
+      }
+    }, 1000)
+
     this.mainWindow.on('hide', () => minimize(true))
     this.mainWindow.on('restore', () => minimize(false))
     this.mainWindow.on('show', () => minimize(false))
