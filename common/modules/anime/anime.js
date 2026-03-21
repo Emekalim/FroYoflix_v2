@@ -730,7 +730,8 @@ export async function getEpisodeMetadataForMedia(media) {
   if (media?.source === 'TMDB') {
     const promiseData = (async () => {
       const { fetchTMDBEpisodes } = await import('@/modules/sections.js')
-      return fetchTMDBEpisodes(media.tmdbId, media.format)
+      const tmdbId = media.tmdbId || media.externalIds?.tmdb || media.id
+      return fetchTMDBEpisodes(tmdbId, media.format)
     })()
     episodeMetadataMap.set(`${media?.id}`, promiseData)
     return promiseData

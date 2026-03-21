@@ -55,6 +55,8 @@ export function normalizeLibraryMedia(media, item = null) {
         color: null
       }
 
+  const normalizedTmdbId = media.tmdbId || media.externalIds?.tmdb || null
+
   return {
     ...media,
     title: typeof media.title === 'object'
@@ -75,6 +77,7 @@ export function normalizeLibraryMedia(media, item = null) {
     format: normalizedFormat,
     type: media.type || normalizedFormat,
     source: normalizedSource,
+    tmdbId: normalizedTmdbId,
     genres: ensureArray(media.genres),
     tags: ensureArray(media.tags),
     mediaListEntry: media.mediaListEntry || null,
@@ -319,6 +322,8 @@ function toShowItem(repository, items) {
 }
 
 class LibraryRepository {
+  _sectionCache = { version: null, data: null }
+
   store() {
     return cache.getStore(caches.LIBRARY)
   }
@@ -328,6 +333,7 @@ class LibraryRepository {
   }
 
   setRaw(key, value) {
+    this._sectionCache = { version: null, data: null }
     const result = cache.write(caches.LIBRARY, key, value)
     libraryVersion.set(Date.now())
     return result
@@ -560,7 +566,11 @@ class LibraryRepository {
   async repairLibraryItems() {
     const items = this.listPrefix(TYPE_PREFIX.item)
     for (const item of items) {
-      await this.repairItem(item.itemId)
+      try {
+        await this.repairItem(item.itemId)
+      } catch (err) {
+        console.warn('[Library] repairItem failed for', item.itemId, err)
+      }
     }
     return items.length
   }
@@ -723,10 +733,27 @@ class LibraryRepository {
 
     if (mediaType) items = items.filter(item => item.mediaType === mediaType)
     if (status) items = items.filter(item => item.statusSummary === status || item.preferredFile?.status === status)
-    if (subtitles) items = items.filter(item => item.subtitles.length > 0)
     if (watchState === 'continue') items = items.filter(item => item.watch && !item.watch.completed && (item.watch.percent || 0) > 0)
     if (watchState === 'completed') items = items.filter(item => item.watch?.completed)
     if (season != null) items = items.filter(item => Number(item.season || 1) === Number(season))
+
+    const tvEpisodes = items.filter(item => item.mediaType === 'tv')
+    if (tvEpisodes.length > 0) {
+      const nonTvItems = items.filter(item => item.mediaType !== 'tv')
+      const groups = new Map()
+      for (const item of tvEpisodes) {
+        const key = buildShowGroupKey(item)
+        const group = groups.get(key) || []
+        group.push(item)
+        groups.set(key, group)
+      }
+      const showItems = Array.from(groups.values())
+        .map(groupItems => toShowItem(this, groupItems))
+        .filter(Boolean)
+      items = [...showItems, ...nonTvItems]
+    }
+
+    if (subtitles) items = items.filter(item => (item.subtitles?.length || 0) > 0)
     if (queryText) items = items.filter(item =>
       item.canonicalTitle?.toLowerCase().includes(queryText) ||
       item.preferredFile?.canonicalPath?.toLowerCase().includes(queryText) ||
@@ -743,6 +770,53 @@ class LibraryRepository {
 
   listSection(section, limit = 20) {
     return this.listItems({ section }).slice(0, limit)
+  }
+
+  computeAllSections(limit = 20) {
+    const currentVersion = libraryVersion.value
+    if (this._sectionCache.version === currentVersion && this._sectionCache.data) {
+      return this._sectionCache.data
+    }
+
+    const unmatched = this.listPrefix(TYPE_PREFIX.file)
+      .filter(file => file.status === 'unmatched')
+      .map(toUnmatchedItem)
+
+    const allItems = [
+      ...this.listPrefix(TYPE_PREFIX.item).map(item => toLibraryItem(this, item)),
+      ...unmatched
+    ].filter(item => item.preferredFile || item.statusSummary === 'unmatched')
+
+    const tvEpisodes = allItems.filter(item => item.mediaType === 'tv')
+    let showItems = []
+    if (tvEpisodes.length > 0) {
+      const groups = new Map()
+      for (const item of tvEpisodes) {
+        const key = buildShowGroupKey(item)
+        const group = groups.get(key) || []
+        group.push(item)
+        groups.set(key, group)
+      }
+      showItems = Array.from(groups.values()).map(g => toShowItem(this, g)).filter(Boolean)
+    }
+
+    const processed = [...showItems, ...allItems.filter(item => item.mediaType !== 'tv')]
+    processed.sort((a, b) =>
+      Number(b.preferredFile?.importedAt || b.updatedAt || 0) -
+      Number(a.preferredFile?.importedAt || a.updatedAt || 0)
+    )
+
+    const data = [
+      { title: 'Continue Watching', section: 'continue', items: processed.filter(i => i.watch && !i.watch.completed && (i.watch.percent || 0) > 0).slice(0, limit) },
+      { title: 'Recently Added',    section: 'recent',   items: processed.filter(i => i.statusSummary === 'imported').slice(0, limit) },
+      { title: 'Movies',            section: 'movies',   items: processed.filter(i => i.mediaType === 'movie').slice(0, limit) },
+      { title: 'Shows',             section: 'shows',    items: showItems.slice(0, limit) },
+      { title: 'Anime',             section: 'anime',    items: processed.filter(i => i.mediaType === 'anime').slice(0, limit) },
+      { title: 'Unmatched Files',   section: 'unmatched',items: unmatched.slice(0, limit) },
+    ].filter(s => s.items.length > 0)
+
+    this._sectionCache = { version: currentVersion, data }
+    return data
   }
 
   async findPreferredFile({ provider, mediaId, season, episode }) {

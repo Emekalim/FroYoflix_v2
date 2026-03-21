@@ -127,7 +127,7 @@
         dubAiring: null,
         seasonNumber: episodeData?.seasonNumber || 1,
         episodeNumber: episodeData?.episodeNumber || episodeData.absoluteEpisodeNumber
-      }))
+      })).sort((a, b) => (a.episodeNumber || a.episode || 0) - (b.episodeNumber || b.episode || 0))
       return
     }
 

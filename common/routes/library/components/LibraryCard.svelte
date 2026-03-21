@@ -32,7 +32,7 @@
       startLibraryManualMatch(item)
       return
     }
-    if (item?.libraryShow || item?.mediaType === 'movie') {
+    if (item?.libraryShow || item?.mediaType === 'movie' || item?.mediaType === 'anime') {
       openLibraryItemDetails(item)
       return
     }

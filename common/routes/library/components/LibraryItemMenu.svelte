@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { startLibraryManualMatch } from '@/modules/library/manualMatch.js'
   import { EllipsisVertical, Search } from 'lucide-svelte'
 
@@ -47,16 +47,14 @@
     startLibraryManualMatch(item)
   }
 
-  if (typeof document !== 'undefined') {
+  onMount(() => {
     document.addEventListener('pointerdown', handleOutside, true)
     document.addEventListener('keydown', handleKeydown, true)
-  }
+  })
 
   onDestroy(() => {
-    if (typeof document !== 'undefined') {
-      document.removeEventListener('pointerdown', handleOutside, true)
-      document.removeEventListener('keydown', handleKeydown, true)
-    }
+    document.removeEventListener('pointerdown', handleOutside, true)
+    document.removeEventListener('keydown', handleKeydown, true)
   })
 </script>
 

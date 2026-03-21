@@ -24,6 +24,15 @@
   const debug = Debug("ui:mediahandler");
 
   const episodeRx = /Episode (\d+) - (.*)/;
+
+  let _libraryRepository = null;
+  async function getLibraryRepository() {
+    if (!_libraryRepository) {
+      const mod = await import("@/modules/library/LibraryRepository.js");
+      _libraryRepository = mod.default;
+    }
+    return _libraryRepository;
+  }
   const TYPE_EXCLUSIONS = [
     "ED",
     "ENDING",
@@ -96,25 +105,16 @@
       processedFiles?.value?.length >= 1 ? processedFiles.value : files.value,
       oldNowPlaying,
     );
-    let targetFile = fileList.find(
+    const targetFile = fileList.find(
       (file) =>
         file.media?.media?.id === obj.media?.id &&
         (Number(file.media?.parseObject?.episode_number || 0) === obj.episode ||
+          file.media?.episode === obj.episode ||
           obj.media?.episodes === 1 ||
           (!obj.media?.episodes &&
             (obj.episode === 1 || !obj.episode) &&
             (oldNowPlaying.episode === 1 || !oldNowPlaying.episode))),
     ); // movie check
-    if (!targetFile)
-      targetFile = fileList.find(
-        (file) =>
-          file.media?.media?.id === obj.media.id &&
-          (file.media?.episode === obj.episode ||
-            obj.media?.episodes === 1 ||
-            (!obj.media?.episodes &&
-              (obj.episode === 1 || !obj.episode) &&
-              (oldNowPlaying.episode === 1 || !oldNowPlaying.episode))),
-      ); // movie check
     if (!targetFile) {
       const resolvedHash = getHash(
         obj.media?.id,
@@ -135,133 +135,9 @@
         return true;
       }
 
-      // Check for cached local file
-      const localCacheKey = `${obj.media.id}-${obj.season}-${obj.episode}`;
-      const localCache = cache.getEntry(caches.HISTORY, "localFiles") || {};
-      const cachedPath = localCache[localCacheKey];
-
-      if (cachedPath) {
-        // Reject macOS hidden files from cache
-        const fileName = cachedPath.split(/[\\/]/).pop();
-        if (fileName.startsWith("._")) {
-          console.warn(
-            "[MediaHandler] Removed hidden file from cache:",
-            cachedPath,
-          );
-          delete localCache[localCacheKey];
-          cache.setEntry(caches.HISTORY, "localFiles", localCache);
-          // Fall through to searchDownloadFolder
-        } else {
-          const cachedUrl = `file://${cachedPath}`;
-          try {
-            // Verify file exists and is accessible
-            const response = await fetch(cachedUrl, { method: "HEAD" });
-            if (response.ok) {
-              console.log(
-                "[MediaHandler] Found cached local file:",
-                cachedPath,
-              );
-              toast.success("Local file found from cache!", {
-                description: `Playing from: ${cachedPath}`,
-                duration: 5000,
-              });
-
-              // Check if this file is currently being downloaded or seeded
-              // If so, we should use the torrent engine to stream it instead of direct file access
-              const activeTorrents = [
-                ...stagingTorrents.value,
-                ...seedingTorrents.value,
-              ];
-              const matchingTorrent = activeTorrents.find((t) =>
-                t.files?.some((f) => f.path === cachedPath),
-              );
-
-              if (matchingTorrent) {
-                console.log(
-                  "[MediaHandler] Cached file matches active torrent:",
-                  matchingTorrent.infoHash,
-                );
-                toast.info("Resuming active download...", {
-                  description: "Streaming via torrent engine",
-                  duration: 3000,
-                });
-
-                // Cache the hash link just in case
-                setHash(obj.media.id, obj.episode, matchingTorrent.infoHash, {
-                  season: obj.season,
-                  mediaType: obj.media.format === "TV" ? "tv" : "movie",
-                  provider: obj.media.source === "TMDB" ? "tmdb" : "anilist",
-                });
-
-                window.dispatchEvent(
-                  new CustomEvent("add", {
-                    detail: {
-                      resolvedHash: matchingTorrent.infoHash,
-                      search: { media: obj.media, episode: obj.episode },
-                    },
-                  }),
-                );
-                return true;
-              }
-
-              // Create a file object compatible with the player
-              // Extract filename from path
-              const fileName = cachedPath.split(/[\\/]/).pop();
-              const fileObject = {
-                name: fileName,
-                path: cachedPath,
-                url: cachedUrl,
-                media: {
-                  media: obj.media,
-                  episode: obj.episode,
-                  season: obj.season,
-                  parseObject: {
-                    anime_title:
-                      obj.media.title?.userPreferred || obj.media.title?.romaji,
-                    media_title:
-                      obj.media.title?.userPreferred || obj.media.title?.romaji,
-                    episode_number: obj.episode,
-                    anime_season: obj.season,
-                    file_name: fileName,
-                  },
-                },
-              };
-
-              // Update nowPlaying and navigate to player
-              await playLocalFileEntry(fileObject, {
-                ...(newPlaying ? newPlaying : {}),
-                media: obj.media,
-                parseObject: fileObject.media.parseObject,
-                failed: obj.failed,
-              });
-
-              return true;
-            } else {
-              console.warn(
-                "[MediaHandler] Cached file exists but is not accessible:",
-                cachedPath,
-              );
-              // Remove invalid cache entry
-              delete localCache[localCacheKey];
-              cache.setEntry(caches.HISTORY, "localFiles", localCache);
-            }
-          } catch (e) {
-            console.warn(
-              "[MediaHandler] Cached file not found or error checking:",
-              e,
-            );
-            // Remove invalid cache entry
-            delete localCache[localCacheKey];
-            cache.setEntry(caches.HISTORY, "localFiles", localCache);
-          }
-        }
-      }
-
       // Preferred managed-library lookup
       try {
-        const { default: libraryRepository } = await import(
-          "@/modules/library/LibraryRepository.js"
-        );
+        const libraryRepository = await getLibraryRepository();
         const provider = obj.media?.source === "TMDB" ? "tmdb" : "anilist";
         const season =
           obj.media?.format === "MOVIE" || obj.media?.episodes === 1
@@ -276,16 +152,14 @@
 
         if (libraryMatch?.file?.absolutePath) {
           const preferredPath = libraryMatch.file.absolutePath;
-          const activeTorrents = [
-            ...stagingTorrents.value,
-            ...seedingTorrents.value,
-          ];
-          const matchingTorrent = activeTorrents.find((t) =>
-            t.infoHash === libraryMatch.file.torrentInfoHash,
-          );
+          const matchingTorrent =
+            stagingTorrents.value.find((t) => t.infoHash === libraryMatch.file.torrentInfoHash) ||
+            seedingTorrents.value.find((t) => t.infoHash === libraryMatch.file.torrentInfoHash);
 
           if (matchingTorrent && libraryMatch.file.status === "incoming") {
-            setHash(obj.media.id, obj.episode, matchingTorrent.infoHash, {
+            setHash(matchingTorrent.infoHash, {
+              mediaId: obj.media.id,
+              episode: obj.episode,
               season: obj.season,
               mediaType: obj.media.format === "TV" ? "tv" : "movie",
               provider,
@@ -332,14 +206,8 @@
             },
           };
 
-          const currentCache =
-            cache.getEntry(caches.HISTORY, "localFiles") || {};
-          currentCache[localCacheKey] = preferredPath;
-          cache.setEntry(caches.HISTORY, "localFiles", currentCache);
-
           fileObject.subtitleFiles = subtitleFiles;
           await playLocalFileEntry(fileObject, {
-            ...(newPlaying ? newPlaying : {}),
             media: obj.media,
             episode: obj.episode,
             season: obj.season,
@@ -352,123 +220,6 @@
         console.error("[MediaHandler] Library lookup error:", error);
       }
 
-      // NEW: Fallback to download folder search
-      try {
-        const { searchDownloadFolder } = await import(
-          "@/modules/folder-scanner.js"
-        );
-        console.log("[MediaHandler] Searching download folder...");
-        toast.info("Searching local files...", {
-          description: "Checking download folder for media file",
-          duration: 3000,
-        });
-
-        const foundFile = await searchDownloadFolder(
-          obj.media,
-          obj.episode,
-          obj.season,
-        );
-
-        if (foundFile) {
-          console.log(
-            "[MediaHandler] Found in download folder:",
-            foundFile.name,
-          );
-
-          // Show detailed success notification
-          toast.success("Local file found!", {
-            description: `Playing from: ${foundFile.path}`,
-            duration: 5000,
-          });
-
-          // Check if this file is currently being downloaded or seeded
-          // If so, we should use the torrent engine to stream it instead of direct file access
-          // This avoids issues with incomplete files and ensures we use the correct playback method
-          const activeTorrents = [
-            ...stagingTorrents.value,
-            ...seedingTorrents.value,
-          ];
-          const matchingTorrent = activeTorrents.find((t) =>
-            t.files?.some((f) => f.path === foundFile.path),
-          );
-
-          if (matchingTorrent) {
-            console.log(
-              "[MediaHandler] Found file matches active torrent:",
-              matchingTorrent.infoHash,
-            );
-            toast.info("Resuming active download...", {
-              description: "Streaming via torrent engine",
-              duration: 3000,
-            });
-
-            // Cache the hash link for future
-            setHash(obj.media.id, obj.episode, matchingTorrent.infoHash, {
-              season: obj.season,
-              mediaType: obj.media.format === "TV" ? "tv" : "movie",
-              provider: obj.media.source === "TMDB" ? "tmdb" : "anilist",
-            });
-
-            window.dispatchEvent(
-              new CustomEvent("add", {
-                detail: {
-                  resolvedHash: matchingTorrent.infoHash,
-                  search: { media: obj.media, episode: obj.episode },
-                },
-              }),
-            );
-            return true;
-          }
-
-          // Cache the result for future lookups
-          const currentCache =
-            cache.getEntry(caches.HISTORY, "localFiles") || {};
-          currentCache[localCacheKey] = foundFile.path;
-          cache.setEntry(caches.HISTORY, "localFiles", currentCache);
-
-          // Create a file object compatible with the player
-          const fileObject = {
-            name: foundFile.name,
-            path: foundFile.path,
-            url: `file://${foundFile.path}`,
-            media: {
-              media: obj.media,
-              episode: obj.episode,
-              season: obj.season,
-              parseObject: foundFile.media?.parseObject || {
-                anime_title:
-                  obj.media.title?.userPreferred || obj.media.title?.romaji,
-                media_title:
-                  obj.media.title?.userPreferred || obj.media.title?.romaji,
-                episode_number: obj.episode,
-                anime_season: obj.season,
-                file_name: foundFile.name,
-              },
-            },
-          };
-
-          // Update nowPlaying and navigate to player
-          await playLocalFileEntry(fileObject, {
-            media: obj.media,
-            episode: obj.episode,
-            season: obj.season,
-            parseObject: fileObject.media.parseObject,
-          });
-
-          return true;
-        } else {
-          toast("File not found locally", {
-            description: "Opening torrent search...",
-            duration: 3000,
-          });
-        }
-      } catch (error) {
-        console.error("[MediaHandler] Folder search error:", error);
-        toast.error("Search error", {
-          description: error.message || "Failed to search download folder",
-          duration: 5000,
-        });
-      }
       return false;
     }
     if (oldNowPlaying?.media?.id !== obj?.media?.id) {

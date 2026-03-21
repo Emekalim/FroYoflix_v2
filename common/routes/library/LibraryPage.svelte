@@ -1,13 +1,15 @@
 <script>
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { settings } from '@/modules/settings.js'
   import { loadedTorrent, seedingTorrents, stagingTorrents } from '@/modules/torrent.js'
   import { libraryRepository, libraryVersion } from '@/modules/library/LibraryRepository.js'
-  import { rebuildLibrary } from '@/modules/library/LibraryIngest.js'
+  import { rebuildLibrary, sweepOrphanedFiles } from '@/modules/library/LibraryIngest.js'
   import LibrarySection from '@/routes/library/components/LibrarySection.svelte'
+  import LibraryLoading from '@/routes/library/components/LibraryLoading.svelte'
   import { toast } from 'svelte-sonner'
   import { Clapperboard, RefreshCw } from 'lucide-svelte'
 
+  let loading = true
   let sections = []
   let librarySections = []
   let incomingSection = { title: 'Incoming Downloads', section: 'incoming', items: [] }
@@ -38,14 +40,7 @@
   }
 
   function refreshLibrarySections() {
-    librarySections = [
-      { title: 'Continue Watching', section: 'continue', items: libraryRepository.listSection('continue', 20) },
-      { title: 'Recently Added', section: 'recent', items: libraryRepository.listSection('recent', 20) },
-      { title: 'Movies', section: 'movies', items: libraryRepository.listSection('movies', 20) },
-      { title: 'Shows', section: 'shows', items: libraryRepository.listSection('shows', 20) },
-      { title: 'Anime', section: 'anime', items: libraryRepository.listSection('anime', 20) },
-      { title: 'Unmatched Files', section: 'unmatched', items: libraryRepository.listSection('unmatched', 20) },
-    ].filter((section) => section.items.length > 0)
+    librarySections = libraryRepository.computeAllSections(20)
   }
 
   async function rebuild() {
@@ -56,13 +51,30 @@
     })
   }
 
+  function runSweep() {
+    sweepOrphanedFiles().catch(error => console.warn('[Library] Orphan sweep failed:', error))
+  }
+
+  function onVisibilityChange() {
+    if (!document.hidden) runSweep()
+  }
+
   onMount(() => {
-    refreshLibrarySections()
-    refreshIncomingSection()
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    setTimeout(() => {
+      refreshLibrarySections()
+      refreshIncomingSection()
+      loading = false
+      runSweep()
+    }, 0)
+  })
+
+  onDestroy(() => {
+    document.removeEventListener('visibilitychange', onVisibilityChange)
   })
   $: {
     $libraryVersion
-    refreshLibrarySections()
+    if (!loading) refreshLibrarySections()
   }
   $: {
     $loadedTorrent
@@ -73,7 +85,11 @@
   $: sections = [...librarySections, ...(incomingSection.items.length ? [incomingSection] : [])]
 </script>
 
-<div class='h-full w-full overflow-y-scroll overflow-x-hidden library-root'>
+<div class='h-full w-full overflow-y-scroll overflow-x-hidden library-root position-relative'>
+
+  {#if loading}
+    <LibraryLoading />
+  {/if}
   <div class='library-hero px-30 py-30 d-flex align-items-end justify-content-between'>
     <div>
       <div class='d-flex align-items-center mb-10'>
@@ -92,7 +108,7 @@
       {#each sections as section (section.section)}
         <LibrarySection title={section.title} section={section.section} items={section.items} />
       {/each}
-    {:else}
+    {:else if !loading}
       <div class='px-30 text-muted'>The library is empty. Start a download or rebuild the library after adding files under the managed root.</div>
     {/if}
   </div>

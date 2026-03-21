@@ -355,12 +355,20 @@ async function indexResolvedVideo(videoFile, result, subtitleFiles, infoHash, ro
         mtime: videoFile.mtime || Date.now()
       }
   const fastHash = await libraryRepository.autoAttachFastHash(movedVideo.path)
+
+  // Determine season: prefer resolver result, then try filename SxxExx pattern, then default to 1
+  let resolvedSeason = result.season ?? null
+  if (result.mediaType !== 'movie' && !resolvedSeason) {
+    const seasonMatch = String(videoFile.name || '').match(/[Ss](\d{1,2})[Ee]\d{1,2}/)
+    if (seasonMatch) resolvedSeason = parseInt(seasonMatch[1], 10)
+  }
+
   const identity = {
     provider: result.provider,
     mediaId: result.media?.id || result.media?.tmdbId || result.media?.externalIds?.tmdb,
     mediaType: result.mediaType,
     canonicalTitle: getCanonicalTitle(result.media),
-    season: result.season ?? (result.mediaType === 'movie' ? null : 1),
+    season: resolvedSeason ?? (result.mediaType === 'movie' ? null : 1),
     episode: result.mediaType === 'movie' ? null : result.episode,
     episodeRange: result.parseObject?.episodeRange || null,
     mediaSnapshot: result.media
@@ -401,32 +409,36 @@ async function indexResolvedVideo(videoFile, result, subtitleFiles, infoHash, ro
     .filter(subtitle => !usedSubtitlePaths.has(subtitle.path))
   const subtitleRecords = []
   for (const subtitle of matchedSubtitles) {
-    const subtitleTarget = buildCanonicalPaths({
-      rootPath,
-      media: result.media,
-      mediaType: result.mediaType,
-      season: result.season,
-      episode: result.episode,
-      episodeRange: result.parseObject?.episodeRange,
-      subtitleExtension: extname(subtitle.name).replace(/^\./, ''),
-      language: inferLanguage(subtitle.name)
-    })
-    const movedSubtitle = moveFiles
-      ? await movePath(subtitle.path, subtitleTarget.subtitlePath)
-      : {
-          path: subtitle.path,
-          size: subtitle.size || 0,
-          mtime: subtitle.mtime || Date.now()
-        }
-    usedSubtitlePaths.add(subtitle.path)
-    subtitleRecords.push(await buildImportedSubtitleRecord({
-      itemId: null,
-      fileId: candidateFile.fileId,
-      absolutePath: movedSubtitle.path,
-      size: movedSubtitle.size || subtitle.size || 0,
-      mtime: movedSubtitle.mtime || subtitle.mtime || Date.now(),
-      language: inferLanguage(subtitle.name)
-    }))
+    try {
+      const subtitleTarget = buildCanonicalPaths({
+        rootPath,
+        media: result.media,
+        mediaType: result.mediaType,
+        season: result.season,
+        episode: result.episode,
+        episodeRange: result.parseObject?.episodeRange,
+        subtitleExtension: extname(subtitle.name).replace(/^\./, ''),
+        language: inferLanguage(subtitle.name)
+      })
+      const movedSubtitle = moveFiles
+        ? await movePath(subtitle.path, subtitleTarget.subtitlePath)
+        : {
+            path: subtitle.path,
+            size: subtitle.size || 0,
+            mtime: subtitle.mtime || Date.now()
+          }
+      usedSubtitlePaths.add(subtitle.path)
+      subtitleRecords.push(await buildImportedSubtitleRecord({
+        itemId: null,
+        fileId: candidateFile.fileId,
+        absolutePath: movedSubtitle.path,
+        size: movedSubtitle.size || subtitle.size || 0,
+        mtime: movedSubtitle.mtime || subtitle.mtime || Date.now(),
+        language: inferLanguage(subtitle.name)
+      }))
+    } catch (err) {
+      console.warn('[Library] Subtitle move failed, skipping:', subtitle.path, err)
+    }
   }
 
   const item = await libraryRepository.recordImportedMedia({
@@ -496,9 +508,21 @@ async function processScannedFiles(files, { rootPath, infoHash = null, sourceKin
     const videoFile = videos[index]
     if (isManagedBucketPath(videoFile.path, rootPath)) {
       const stored = await readStoredMetadata(videoFile.path, rootPath)
-      const restored = fromStoredMetadata(stored)
+      let restored = fromStoredMetadata(stored)
       const expectedType = getManagedMediaType(videoFile.path, rootPath)
       if (restored && (!expectedType || restored.mediaType === expectedType)) {
+        // If the current filename has an explicit SxxExx season pattern, use it to override
+        // stale stored season (e.g. file was renamed after initial ingest with wrong season)
+        if (restored.mediaType !== 'movie') {
+          const fileName = basename(videoFile.path || videoFile.name)
+          const seasonMatch = fileName.match(/[Ss](\d{1,2})[Ee]\d{1,2}/)
+          if (seasonMatch) {
+            const filenameSeason = parseInt(seasonMatch[1], 10)
+            if (restored.season !== filenameSeason) {
+              restored = { ...restored, season: filenameSeason }
+            }
+          }
+        }
         results[index] = restored
         continue
       }
@@ -546,30 +570,36 @@ export async function ingestDirectory({ infoHash, incomingPath, sourceKind = 'to
   if (!ELECTRON) return []
   const rootPath = getLibraryRoot()
   if (!rootPath || !incomingPath || !(await exists(incomingPath))) return []
-  const files = await scanPath(incomingPath, true)
-  const videos = files.filter(file => videoRx.test(file.name) && !file.name.startsWith('._'))
-  const subtitles = files.filter(file => subRx.test(file.name) && !file.name.startsWith('._'))
-  if (!videos.length) return []
-  const results = await MediaResolver.resolveFileMedia(videos.map(file => file.name))
-  const imported = []
-  const usedSubtitlePaths = new Set()
-  for (let index = 0; index < videos.length; index++) {
-    const videoFile = videos[index]
-    const resolved = results[index]
-    if (resolved?.failed || !resolved?.media || !resolved?.provider || !resolved?.mediaType) {
-      imported.push(await recordUnmatchedVideo(videoFile, infoHash, sourceKind))
-      continue
+  try {
+    const files = await scanPath(incomingPath, true)
+    const videos = files.filter(file => videoRx.test(file.name) && !file.name.startsWith('._'))
+    const subtitles = files.filter(file => subRx.test(file.name) && !file.name.startsWith('._'))
+    if (!videos.length) return []
+    const results = await MediaResolver.resolveFileMedia(videos.map(file => file.name))
+    const imported = []
+    const usedSubtitlePaths = new Set()
+    for (let index = 0; index < videos.length; index++) {
+      const videoFile = videos[index]
+      const resolved = results[index]
+      if (resolved?.failed || !resolved?.media || !resolved?.provider || !resolved?.mediaType) {
+        imported.push(await recordUnmatchedVideo(videoFile, infoHash, sourceKind))
+        continue
+      }
+      imported.push(await importResolvedVideo(videoFile, resolved, subtitles, infoHash, rootPath, sourceKind, usedSubtitlePaths))
     }
-    imported.push(await importResolvedVideo(videoFile, resolved, subtitles, infoHash, rootPath, sourceKind, usedSubtitlePaths))
+    await libraryRepository.setScanState(rootPath, {
+      lastScanAt: Date.now(),
+      lastFullScanAt: Date.now(),
+      scannerVersion: 1,
+      status: 'idle'
+    })
+    await libraryRepository.repairLibraryItems()
+    return imported
+  } catch (err) {
+    console.error('[Library] ingestDirectory failed:', err)
+    await libraryRepository.setScanState(rootPath, { status: 'error', error: err.message })
+    return []
   }
-  await libraryRepository.setScanState(rootPath, {
-    lastScanAt: Date.now(),
-    lastFullScanAt: Date.now(),
-    scannerVersion: 1,
-    status: 'idle'
-  })
-  await libraryRepository.repairLibraryItems()
-  return imported
 }
 
 export async function ingestTorrentCompletion(detail) {
@@ -580,58 +610,88 @@ export async function ingestTorrentCompletion(detail) {
 export async function rebuildLibrary() {
   const rootPath = getLibraryRoot()
   if (!rootPath || !ELECTRON) return []
-  const imported = []
-  const managedRoots = ['Movies', 'Shows', 'Anime']
-  await snapshotIndexedMetadata(rootPath)
-  await libraryRepository.clearForRebuild()
-  const rootEntries = await scanPath(rootPath, false)
+  try {
+    const imported = []
+    const managedRoots = ['Movies', 'Shows', 'Anime']
+    await snapshotIndexedMetadata(rootPath)
+    await libraryRepository.clearForRebuild()
+    const rootEntries = await scanPath(rootPath, false)
 
-  imported.push(...(await processScannedFiles(rootEntries, {
-    rootPath,
-    sourceKind: 'manual',
-    moveFiles: true
-  })))
-
-  for (const entry of rootEntries.filter(file => file.type === 'directory' && managedRoots.includes(file.name))) {
-    const files = await scanPath(entry.path, true)
-    if (!files.length) continue
-    imported.push(...(await processScannedFiles(files, {
+    imported.push(...(await processScannedFiles(rootEntries, {
       rootPath,
       sourceKind: 'manual',
-      moveFiles: false
+      moveFiles: true
     })))
-  }
 
-  for (const entry of rootEntries.filter(file => file.type === 'directory' && file.name !== '.froyo' && !managedRoots.includes(file.name))) {
-    const files = await scanPath(entry.path, true)
-    if (!files.length || isFroyoPath(entry.path)) continue
-    imported.push(...(await processScannedFiles(files, {
-      rootPath,
-      sourceKind: 'manual',
-      moveFiles: !isManagedBucketPath(entry.path, rootPath)
-    })))
-  }
-
-  const incomingRoot = getIncomingRoot(rootPath)
-  if (await exists(incomingRoot)) {
-    const folders = await scanPath(incomingRoot, false)
-    for (const entry of folders.filter(file => file.type === 'directory')) {
-      imported.push(...(await ingestDirectory({
-        infoHash: basename(entry.path),
-        incomingPath: entry.path,
-        sourceKind: containsSegment(entry.path, 'manual') ? 'manual' : 'torrent'
+    for (const entry of rootEntries.filter(file => file.type === 'directory' && managedRoots.includes(file.name))) {
+      const files = await scanPath(entry.path, true)
+      if (!files.length) continue
+      imported.push(...(await processScannedFiles(files, {
+        rootPath,
+        sourceKind: 'manual',
+        moveFiles: false
       })))
+    }
+
+    for (const entry of rootEntries.filter(file => file.type === 'directory' && file.name !== '.froyo' && !managedRoots.includes(file.name))) {
+      const files = await scanPath(entry.path, true)
+      if (!files.length || isFroyoPath(entry.path)) continue
+      imported.push(...(await processScannedFiles(files, {
+        rootPath,
+        sourceKind: 'manual',
+        moveFiles: !isManagedBucketPath(entry.path, rootPath)
+      })))
+    }
+
+    const incomingRoot = getIncomingRoot(rootPath)
+    if (await exists(incomingRoot)) {
+      const folders = await scanPath(incomingRoot, false)
+      for (const entry of folders.filter(file => file.type === 'directory')) {
+        imported.push(...(await ingestDirectory({
+          infoHash: basename(entry.path),
+          incomingPath: entry.path,
+          sourceKind: containsSegment(entry.path, 'manual') ? 'manual' : 'torrent'
+        })))
+      }
+    }
+
+    await libraryRepository.setScanState(rootPath, {
+      lastScanAt: Date.now(),
+      lastFullScanAt: Date.now(),
+      scannerVersion: 1,
+      status: 'idle'
+    })
+    await libraryRepository.repairLibraryItems()
+    return imported
+  } catch (err) {
+    console.error('[Library] Rebuild failed:', err)
+    await libraryRepository.setScanState(rootPath, { status: 'error', error: err.message })
+    throw err
+  }
+}
+
+export async function sweepOrphanedFiles() {
+  if (!ELECTRON) return { checked: 0, missing: 0 }
+  const rootPath = getLibraryRoot()
+  if (!rootPath) return { checked: 0, missing: 0 }
+
+  const files = libraryRepository.listPrefix('file:').filter(file => file.status === 'imported' && file.absolutePath)
+  let missing = 0
+
+  for (const file of files) {
+    try {
+      const found = await exists(file.absolutePath)
+      if (!found) {
+        await libraryRepository.upsertFile({ ...file, status: 'missing' })
+        if (file.itemId) await libraryRepository.syncPreferredFile(file.itemId)
+        missing++
+      }
+    } catch {
+      // skip unreadable entries
     }
   }
 
-  await libraryRepository.setScanState(rootPath, {
-    lastScanAt: Date.now(),
-    lastFullScanAt: Date.now(),
-    scannerVersion: 1,
-    status: 'idle'
-  })
-  await libraryRepository.repairLibraryItems()
-  return imported
+  return { checked: files.length, missing }
 }
 
 export async function importManualIncoming() {

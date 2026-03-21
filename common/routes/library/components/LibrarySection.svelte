@@ -201,7 +201,9 @@
       } else if (item?.itemId && !isPlaceholderMedia(media)) {
         await libraryRepository.saveMediaSnapshot(item.itemId, buildPlaceholderMedia(item, providerId))
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[Library] Failed to hydrate media for', item?.itemId, err)
+    }
   }
 
   function shouldShowLoadingCard(item) {
@@ -230,7 +232,7 @@
     .forEach((item) => { ensurePosterMedia(item) })
 
   function openPosterItem(item) {
-    if (item?.libraryShow || item?.mediaType === 'movie') {
+    if (item?.libraryShow || item?.mediaType === 'movie' || item?.mediaType === 'anime') {
       openLibraryItemDetails(item)
       return
     }

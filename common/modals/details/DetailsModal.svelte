@@ -37,7 +37,9 @@
   import {
     playLibraryShowEpisode,
     playLibraryShowItem,
+    playLibraryItem,
   } from "@/modules/library/playback.js";
+  import { libraryRepository } from "@/modules/library/LibraryRepository.js";
   import SmallCard from "@/components/cards/SmallCard.svelte";
   import SmallCardSk from "@/components/skeletons/SmallCardSk.svelte";
   import Helper from "@/modules/helper.js";
@@ -252,12 +254,31 @@
   function checkClose({ keyCode }) {
     if (keyCode === 27) close();
   }
-  function play(media, episode, force = false) {
+  async function play(media, episode, force = false) {
     if (!media) return;
     if (libraryShow) {
       if (isValidNumber(episode))
         return playLibraryShowEpisode(libraryShow, seasonFilter, episode);
       return playLibraryShowItem(libraryShow, seasonFilter);
+    }
+    // Library-first lookup: check local index before opening torrent UI
+    if (isValidNumber(episode) || media.format === "MOVIE" || media.episodes === 1) {
+      const provider = media.source === "TMDB" ? "tmdb" : "anilist";
+      const isMovie = media.format === "MOVIE" || media.episodes === 1;
+      const libraryMatch = await libraryRepository.findPreferredFile({
+        provider,
+        mediaId: media.id,
+        season: isMovie ? null : (seasonFilter || 1),
+        episode: isMovie ? null : episode,
+      });
+      if (libraryMatch?.file?.absolutePath) {
+        return playLibraryItem({
+          ...libraryMatch.item,
+          preferredFile: libraryMatch.file,
+          subtitles: libraryMatch.subtitles,
+          media: libraryRepository.resolveMediaSnapshot(libraryMatch.item),
+        });
+      }
     }
     if (isValidNumber(episode))
       return openTorrentModal(media, episode, force, seasonFilter);
