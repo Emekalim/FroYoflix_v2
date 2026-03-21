@@ -2412,8 +2412,7 @@
     <!-- miniplayer buttons -->
     {#if miniplayer}
       <span
-        class="position-absolute rounded-10 top-0 right-0 m-10 btn-shadow button"
-        class:ctrl={!SUPPORTS.isAndroid}
+        class="position-absolute rounded-10 top-0 right-0 m-10 btn-shadow button miniplayer-action"
         class:mr-40={!SUPPORTS.isAndroid}
         class:mr-50={SUPPORTS.isAndroid}
         title="Minimize"
@@ -2423,8 +2422,7 @@
         <Minus size="1.9rem" strokeWidth="3" />
       </span>
       <span
-        class="position-absolute rounded-10 top-0 right-0 m-10 btn-shadow button"
-        class:ctrl={!SUPPORTS.isAndroid}
+        class="position-absolute rounded-10 top-0 right-0 m-10 btn-shadow button miniplayer-action"
         title="Exit"
         data-name="playPause"
         use:click={() => {
@@ -3410,6 +3408,16 @@
   }
   .miniplayer .mobile-focus-target {
     display: block !important;
+  }
+  .miniplayer-action {
+    opacity: 0;
+    pointer-events: none;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .miniplayer:hover .miniplayer-action {
+    opacity: 1;
+    pointer-events: auto;
   }
   .miniplayer .mobile-focus-target:focus-visible {
     background: hsla(209, 100%, 55%, 0.3);

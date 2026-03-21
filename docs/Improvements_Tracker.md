@@ -62,6 +62,10 @@ This document tracks major feature implementations, architectural improvements, 
     -   ✅ Added managed-library playback lookup and local watch-state updates in `MediaHandler.svelte` and `PlayerPage.svelte`.
     -   ✅ Added search-driven manual metadata matching for library files, including imported items with missing metadata and library card poster/menu actions for re-selecting metadata.
     -   ✅ Added grouped Library Show cards that open the existing show details/episode UI, with locally missing episodes rendered as disabled `Local version not available` entries.
+    -   ✅ **(2026-03-21)** Fixed season detection in `LibraryIngest.js` — added regex fallback (`SxxExx`) when the resolver doesn't return an explicit season number, preventing all TV episodes defaulting to season 1.
+    -   ✅ **(2026-03-21)** Enhanced `LibrarySearch.svelte` with live poster hydration — unmatched/placeholder items auto-query the provider API (AniList or TMDB) using filename/folder heuristics so search results show real artwork instead of blank cards.
+    -   ✅ **(2026-03-21)** Added `computeAllSections(limit)` to `LibraryRepository` — replaces 6 separate `listItems()` calls (6 × O(n) scans) with a single shared scan + version-keyed result cache (O(1) on re-navigation). Cache is invalidated atomically on every `setRaw` write.
+    -   ✅ **(2026-03-21)** Added `LibraryLoading.svelte` full-screen overlay — shown immediately on page mount while `computeAllSections` runs in a deferred `setTimeout(0)`, eliminating the ~2 s blank freeze before first paint.
     -   ⚠️ Electron-first delivery: Android-side filesystem integration is still future work.
     -   ⚠️ Validation is currently limited to targeted unit testing for canonical path generation; broader repo lint/build tooling was unavailable in this workspace.
 -   **Deviations From Original Draft:**

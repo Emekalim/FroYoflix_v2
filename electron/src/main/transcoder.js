@@ -6,13 +6,12 @@ import { join, basename } from 'path'
 import { app } from 'electron'
 import { spawn } from 'child_process'
 import ffmpeg from 'fluent-ffmpeg'
-import ffmpegStatic from 'ffmpeg-static'
 import getPort from 'get-port'
 
-// Set FFmpeg binary path
+// Set FFmpeg binary path — only require ffmpeg-static in dev (it's not bundled in the packaged app)
 const ffmpegBinaryPath = app.isPackaged
     ? join(process.resourcesPath, 'bin', 'ffmpeg')
-    : ffmpegStatic
+    : require('ffmpeg-static')
 
 console.log('[Transcoder] FFmpeg binary path:', ffmpegBinaryPath)
 ffmpeg.setFfmpegPath(ffmpegBinaryPath)

@@ -73,8 +73,8 @@ module.exports = [
     },
     externals: {
       '@paymoapp/electron-shutdown-handler': 'require("@paymoapp/electron-shutdown-handler")',
-
-
+      'ffmpeg-static': 'require("ffmpeg-static")',
+      'ffprobe-static': 'require("ffprobe-static")',
     },
     resolve: {
       aliasFields: [],
