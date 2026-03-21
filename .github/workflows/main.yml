@@ -32,6 +32,39 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
+      - name: Download Windows binaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path "electron/resources/win" | Out-Null
+
+          # --- ffmpeg ---
+          Write-Host "::group::Downloading ffmpeg"
+          Write-Host "Fetching ffmpeg essentials build from gyan.dev..."
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "ffmpeg.zip"
+          Write-Host "Extracting ffmpeg.exe..."
+          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg-tmp" -Force
+          $ffmpegExe = Get-ChildItem -Path "ffmpeg-tmp" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          Copy-Item $ffmpegExe.FullName -Destination "electron/resources/win/ffmpeg.exe"
+          $sizeMB = [math]::Round((Get-Item "electron/resources/win/ffmpeg.exe").Length / 1MB, 1)
+          Write-Host "ffmpeg.exe ready ($sizeMB MB)"
+          Write-Host "::endgroup::"
+
+          # --- HandBrakeCLI ---
+          Write-Host "::group::Downloading HandBrakeCLI"
+          Write-Host "Fetching latest HandBrakeCLI release from GitHub..."
+          $hbRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/HandBrake/HandBrake/releases/latest"
+          $hbUrl = ($hbRelease.assets | Where-Object { $_.name -like "HandBrakeCLI-*-win-x86_64.zip" }).browser_download_url
+          Write-Host "Downloading $hbUrl..."
+          Invoke-WebRequest -Uri $hbUrl -OutFile "handbrake.zip"
+          Write-Host "Extracting HandBrakeCLI.exe..."
+          Expand-Archive -Path "handbrake.zip" -DestinationPath "handbrake-tmp" -Force
+          $hbExe = Get-ChildItem -Path "handbrake-tmp" -Recurse -Filter "HandBrakeCLI.exe" | Select-Object -First 1
+          Copy-Item $hbExe.FullName -Destination "electron/resources/win/HandBrakeCLI.exe"
+          $sizeMB = [math]::Round((Get-Item "electron/resources/win/HandBrakeCLI.exe").Length / 1MB, 1)
+          Write-Host "HandBrakeCLI.exe ready ($sizeMB MB)"
+          Write-Host "::endgroup::"
+
       - name: Install dependencies
         run: |
           cd electron
