@@ -29,8 +29,9 @@ export class Transcoder {
         this.activeTranscodes = new Map() // hash -> ffmpeg command
         this.intentionalStops = new Set() // hash -> boolean (true if stopped explicitly)
 
-        // Platform-specific encoder selection
+        // Platform-specific encoder selection — verified async after init
         this.encoder = this.detectEncoder()
+        this.encoderReady = this.detectWorkingEncoder().then(enc => { this.encoder = enc })
 
         // Ensure directories exist
         this.ensureTempDir()
@@ -50,15 +51,13 @@ export class Transcoder {
             const platform = process.platform
 
             if (platform === 'darwin' || platform === 'linux') {
-                // pkill -f matches against the full command line
-                // "node_modules/.pnpm/ffmpeg-static.*/ffmpeg" is specific enough to our dependency structure
-                exec('pkill -f "node_modules/.pnpm/ffmpeg-static.*/ffmpeg"', (err) => {
+                // Match ffmpeg-static binary in either hoisted (node_modules/ffmpeg-static)
+                // or pnpm store (.pnpm/ffmpeg-static) locations
+                exec('pkill -f "node_modules.*ffmpeg-static.*/ffmpeg"', (err) => {
                     if (!err) console.log('[Transcoder] Cleaned up zombie ffmpeg processes')
                 })
             } else if (platform === 'win32') {
-                // Windows equivalent (wmic or taskkill with filter)
-                // Keeping it simple for now as pkill is unix-specific
-                exec('taskkill /F /IM ffmpeg.exe /FI "COMMANDLINE LIKE \'%node_modules%\'"', (err) => {
+                exec('taskkill /F /IM ffmpeg.exe /FI "COMMANDLINE LIKE \'%ffmpeg-static%\'"', (err) => {
                     if (!err) console.log('[Transcoder] Cleaned up zombie ffmpeg processes')
                 })
             }
@@ -79,16 +78,33 @@ export class Transcoder {
         switch (process.platform) {
             case 'darwin':
                 return 'h264_videotoolbox'
-            // return 'libx264' // Force software encoding for debugging
             case 'win32':
+                // Prefer NVIDIA, but many Windows machines use AMD/Intel — test at transcode time
                 return 'h264_nvenc'
-            // return 'libx264' // Force software encoding for debugging
             case 'linux':
                 return 'h264_vaapi'
-            // return 'libx264' // Force software encoding for debugging
             default:
-                return 'libx264' // Fallback to software
+                return 'libx264'
         }
+    }
+
+    async detectWorkingEncoder() {
+        if (this.encoder === 'libx264') return 'libx264'
+        return new Promise(resolve => {
+            const { execFile } = require('child_process')
+            // Probe encoder availability with a null input test
+            execFile(ffmpegBinaryPath, [
+                '-f', 'lavfi', '-i', 'nullsrc=s=64x64:d=1',
+                '-c:v', this.encoder, '-f', 'null', '-'
+            ], { timeout: 5000 }, (err) => {
+                if (err) {
+                    console.warn(`[Transcoder] ${this.encoder} unavailable, falling back to libx264`)
+                    resolve('libx264')
+                } else {
+                    resolve(this.encoder)
+                }
+            })
+        })
     }
 
     /**
@@ -298,15 +314,19 @@ export class Transcoder {
      * Get path to bundled HandBrakeCLI binary
      */
     getHandBrakePath() {
+        const isWin = process.platform === 'win32'
+        const binaryName = isWin ? 'HandBrakeCLI.exe' : 'HandBrakeCLI'
+        const osFolderName = process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'win' : 'linux'
+
         if (app.isPackaged) {
-            return join(process.resourcesPath, 'bin', 'HandBrakeCLI')
+            return join(process.resourcesPath, 'bin', binaryName)
         }
 
         // In development, app.getAppPath() might point to 'electron/build'
         const appPath = app.getAppPath()
         const possiblePaths = [
-            join(appPath, 'resources', 'mac', 'HandBrakeCLI'),
-            join(appPath, '..', 'resources', 'mac', 'HandBrakeCLI')
+            join(appPath, 'resources', osFolderName, binaryName),
+            join(appPath, '..', 'resources', osFolderName, binaryName)
         ]
 
         for (const p of possiblePaths) {
@@ -358,6 +378,7 @@ export class Transcoder {
      */
     async startTranscoding(filePath, hash, isRetry = false) {
         if (this.activeTranscodes.has(hash)) return // Already running
+        await this.encoderReady // Ensure encoder detection has completed
 
         const cacheDir = join(this.tempDir, hash)
 

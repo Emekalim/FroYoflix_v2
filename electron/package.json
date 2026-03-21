@@ -80,6 +80,15 @@
       "build/**/*",
       "!node_modules/**/*.{mk,a,o,h}"
     ],
+    "extraResources": [
+      {
+        "from": "resources/${os}",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "mac": {
       "artifactName": "${os}-${productName}-v${version}.${ext}",
       "singleArchFiles": "node_modules/+(register-scheme|utp-native|fs-native-extensions)/**",
@@ -89,6 +98,12 @@
       "hardenedRuntime": false,
       "notarize": false,
       "entitlements": "buildResources/entitlements.mac.plist",
+      "extraResources": [
+        {
+          "from": "../node_modules/ffmpeg-static/ffmpeg",
+          "to": "bin/ffmpeg"
+        }
+      ],
       "target": [
         {
           "arch": "x64",
@@ -139,19 +154,6 @@
       "allowToChangeInstallationDirectory": true,
       "oneClick": false,
       "artifactName": "${os}-${productName}-v${version}-installer.${ext}"
-    },
-    "extraResources": [
-      {
-        "from": "resources/${os}",
-        "to": "bin",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "../node_modules/ffmpeg-static/ffmpeg",
-        "to": "bin/ffmpeg"
-      }
-    ]
+    }
   }
 }
