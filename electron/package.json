@@ -1,6 +1,6 @@
 {
   "name": "froyo",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "license": "GPL-3.0-or-later",
   "private": true,
   "author": "Emekalim <Emekalim@users.noreply.github.com>",
@@ -71,7 +71,8 @@
       {
         "provider": "github",
         "owner": "Emekalim",
-        "repo": "FroYoflix_v2"
+        "repo": "FroYoflix_v2",
+        "releaseType": "release"
       }
     ],
     "appId": "com.github.emekalim.froyo",
