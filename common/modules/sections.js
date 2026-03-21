@@ -20,6 +20,7 @@ search.subscribe(value => {
     const searched = { ...value }
     delete searched.load
     delete searched.preview
+    delete searched.fileEdit
     cache.setEntry(caches.HISTORY, 'lastSearched', searched)
   }
 })

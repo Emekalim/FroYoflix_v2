@@ -52,6 +52,24 @@
 
   let playFile;
 
+  async function playLocalFileEntry(fileObject, nowPlayingData = {}) {
+    nowPlaying.set(nowPlayingData);
+    const entries = [fileObject, ...(fileObject.subtitleFiles || [])];
+    processedFiles.set(entries);
+    processed.set(entries);
+    await tick();
+    playFile(fileObject);
+    page.navigateTo(page.PLAYER);
+  }
+
+  window.addEventListener("play-library-file", (event) => {
+    const detail = event.detail;
+    if (!detail?.fileObject) return;
+    playLocalFileEntry(detail.fileObject, detail.nowPlaying || {}).catch((error) =>
+      console.error("[MediaHandler] Failed to play library file:", error),
+    );
+  });
+
   function updateCurrent(current) {
     handleCurrent(current);
     processed.set(processed.value);
@@ -210,19 +228,12 @@
               };
 
               // Update nowPlaying and navigate to player
-              nowPlaying.set({
+              await playLocalFileEntry(fileObject, {
                 ...(newPlaying ? newPlaying : {}),
                 media: obj.media,
                 parseObject: fileObject.media.parseObject,
                 failed: obj.failed,
               });
-
-              processedFiles.set([fileObject]);
-              processed.set([fileObject]);
-
-              await tick();
-              playFile(fileObject);
-              page.navigateTo(page.PLAYER);
 
               return true;
             } else {
@@ -244,6 +255,101 @@
             cache.setEntry(caches.HISTORY, "localFiles", localCache);
           }
         }
+      }
+
+      // Preferred managed-library lookup
+      try {
+        const { default: libraryRepository } = await import(
+          "@/modules/library/LibraryRepository.js"
+        );
+        const provider = obj.media?.source === "TMDB" ? "tmdb" : "anilist";
+        const season =
+          obj.media?.format === "MOVIE" || obj.media?.episodes === 1
+            ? null
+            : (obj.season || 1);
+        const libraryMatch = await libraryRepository.findPreferredFile({
+          provider,
+          mediaId: obj.media?.id,
+          season,
+          episode: obj.episode,
+        });
+
+        if (libraryMatch?.file?.absolutePath) {
+          const preferredPath = libraryMatch.file.absolutePath;
+          const activeTorrents = [
+            ...stagingTorrents.value,
+            ...seedingTorrents.value,
+          ];
+          const matchingTorrent = activeTorrents.find((t) =>
+            t.infoHash === libraryMatch.file.torrentInfoHash,
+          );
+
+          if (matchingTorrent && libraryMatch.file.status === "incoming") {
+            setHash(obj.media.id, obj.episode, matchingTorrent.infoHash, {
+              season: obj.season,
+              mediaType: obj.media.format === "TV" ? "tv" : "movie",
+              provider,
+            });
+            window.dispatchEvent(
+              new CustomEvent("add", {
+                detail: {
+                  resolvedHash: matchingTorrent.infoHash,
+                  search: { media: obj.media, episode: obj.episode },
+                },
+              }),
+            );
+            return true;
+          }
+
+          const subtitleFiles = (libraryMatch.subtitles || []).map((subtitle) => ({
+            name: subtitle.absolutePath.split(/[\\/]/).pop(),
+            path: subtitle.absolutePath,
+            url: `file://${subtitle.absolutePath}`,
+            subtitle: true,
+          }));
+          const fileName = preferredPath.split(/[\\/]/).pop();
+          const fileObject = {
+            name: fileName,
+            path: preferredPath,
+            url: `file://${preferredPath}`,
+            libraryItemId: libraryMatch.item?.itemId,
+            subtitlePaths: (libraryMatch.subtitles || []).map(
+              (subtitle) => subtitle.absolutePath,
+            ),
+            media: {
+              media: obj.media,
+              episode: obj.episode,
+              season: obj.season,
+              parseObject: {
+                anime_title:
+                  obj.media.title?.userPreferred || obj.media.title?.romaji,
+                media_title:
+                  obj.media.title?.userPreferred || obj.media.title?.romaji,
+                episode_number: obj.episode,
+                anime_season: obj.season,
+                file_name: fileName,
+              },
+            },
+          };
+
+          const currentCache =
+            cache.getEntry(caches.HISTORY, "localFiles") || {};
+          currentCache[localCacheKey] = preferredPath;
+          cache.setEntry(caches.HISTORY, "localFiles", currentCache);
+
+          fileObject.subtitleFiles = subtitleFiles;
+          await playLocalFileEntry(fileObject, {
+            ...(newPlaying ? newPlaying : {}),
+            media: obj.media,
+            episode: obj.episode,
+            season: obj.season,
+            parseObject: fileObject.media.parseObject,
+            failed: obj.failed,
+          });
+          return true;
+        }
+      } catch (error) {
+        console.error("[MediaHandler] Library lookup error:", error);
       }
 
       // NEW: Fallback to download folder search
@@ -342,23 +448,12 @@
           };
 
           // Update nowPlaying and navigate to player
-          nowPlaying.set({
+          await playLocalFileEntry(fileObject, {
             media: obj.media,
             episode: obj.episode,
             season: obj.season,
             parseObject: fileObject.media.parseObject,
           });
-
-          // Set the file in processed files
-          processedFiles.set([fileObject]);
-          processed.set([fileObject]);
-
-          // Play the file
-          await tick();
-          playFile(fileObject);
-
-          // Navigate to player page
-          page.navigateTo(page.PLAYER);
 
           return true;
         } else {

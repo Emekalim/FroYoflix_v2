@@ -29,6 +29,7 @@
   import VideoDeband from "video-deband";
   import Helper from "@/modules/helper.js";
   import Hls from "hls.js";
+  import libraryRepository from "@/modules/library/LibraryRepository.js";
 
   import { w2gEmitter, state } from "@/routes/w2g/WatchTogetherPage.svelte";
   import ManagerModal from "@/modals/manager/ManagerModal.svelte";
@@ -709,6 +710,18 @@
         currentTime: video.currentTime,
         safeduration,
       });
+    if (current?.libraryItemId) {
+      libraryRepository
+        .updateWatch({
+          itemId: current.libraryItemId,
+          positionSec: video.currentTime || 0,
+          durationSec: safeduration || 0,
+          completed,
+        })
+        .catch((libraryError) =>
+          console.error("[Library] Failed to update watch progress:", libraryError),
+        );
+    }
   }
   setInterval(() => {
     if (!paused) saveAnimeProgress();
@@ -1935,6 +1948,18 @@
         `Marking current episode as completed as it has met the ${$settings.playerAutocompleteThreshold}% threshold.`,
       );
       completed = true;
+      if (current?.libraryItemId) {
+        libraryRepository
+          .updateWatch({
+            itemId: current.libraryItemId,
+            positionSec: currentTime || safeduration || 0,
+            durationSec: safeduration || 0,
+            completed: true,
+          })
+          .catch((libraryError) =>
+            console.error("[Library] Failed to finalize watch state:", libraryError),
+          );
+      }
       externalPlayerReady = false;
       const _media = media.episodeRange ? structuredClone(media) : media;
       if (media.episodeRange) _media.episode = media.episodeRange.last;

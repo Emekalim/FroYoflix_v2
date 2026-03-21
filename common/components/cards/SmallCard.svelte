@@ -27,12 +27,18 @@
   let media;
   $: if (data && !media) media = mediaCache.value[data?.id];
   mediaCache.subscribe((value) => {
-    if (value && JSON.stringify(value[media?.id]) !== JSON.stringify(media))
-      media = value[media?.id];
+    const nextMedia = value?.[data?.id];
+    if (nextMedia && JSON.stringify(nextMedia) !== JSON.stringify(media))
+      media = nextMedia;
   });
   function viewMedia() {
     if (_variables?.fileEdit) _variables.fileEdit(media);
     else modal.open(modal.ANIME_DETAILS, media);
+  }
+
+  function altViewMedia() {
+    if (_variables?.altFileEdit) _variables.altFileEdit(media);
+    else viewMedia();
   }
 
   let preview = false;
@@ -138,7 +144,7 @@
   class="d-flex p-md-20 p-15 position-relative small-card-ct {$reactive
     ? ``
     : `not-reactive`}"
-  use:hoverClick={[viewMedia, setHoverState, viewMedia]}
+  use:hoverClick={[viewMedia, setHoverState, altViewMedia]}
   on:focus={handleFocus}
 >
   {#if preview}

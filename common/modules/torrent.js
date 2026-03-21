@@ -9,6 +9,7 @@ import { toast } from 'svelte-sonner'
 import clipboard from '@/modules/clipboard.js'
 import { setHash } from '@/modules/anime/animehash.js'
 import { IPC } from '@/modules/bridge.js'
+import { ELECTRON } from '@/modules/bridge.js'
 import WPC from '@/modules/wpc.js'
 import 'browser-event-target-emitter'
 import Debug from 'debug'
@@ -238,6 +239,11 @@ function setupTorrentClient() {
     stagingTorrents.update(arr => arr.filter(torrent => torrent.infoHash !== detail.infoHash))
     seedingTorrents.update(arr => arr.filter(torrent => torrent.infoHash !== detail.infoHash))
     completedTorrents.update(prev => [detail, ...prev.filter(torrent => torrent.infoHash !== detail.infoHash)])
+    if (ELECTRON && detail?.incomingPath) {
+      import('@/modules/library/LibraryIngest.js')
+        .then(({ ingestTorrentCompletion }) => ingestTorrentCompletion(detail))
+        .catch(error => console.error('[Library] Failed to ingest completed torrent:', error))
+    }
   })
   client.on('completedStats', ({ detail }) => {
     WPC.send('rescan_done')

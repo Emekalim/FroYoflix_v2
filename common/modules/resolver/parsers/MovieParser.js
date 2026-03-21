@@ -94,9 +94,7 @@ export default class MovieParser extends BaseParser {
       /\[.*?\]/g,
       /\(.*?\)/g,
       // Trailing numbers that look like disk/part numbers
-      /\b(cd|disk|disc|part|pt)\s*\d+\b/gi,
-      // Isolated numbers at end of string (often part numbers or junk)
-      /\s+\d+$/
+      /\b(cd|disk|disc|part|pt)\s*\d+\b/gi
     ]
 
     for (const regex of techTerms) {

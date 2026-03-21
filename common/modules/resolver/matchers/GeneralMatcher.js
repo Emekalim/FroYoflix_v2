@@ -180,34 +180,67 @@ export default class GeneralMatcher extends BaseMatcher {
    */
   normalizeResult(result, mediaType) {
     // Check if title is an object (found during debugging)
-    let title = result.title || result.name
-    if (title && typeof title === 'object') {
-      title = title.english || title.default || title.title || title.name || ''
+    let titleText = result.title || result.name
+    if (titleText && typeof titleText === 'object') {
+      titleText = titleText.english || titleText.default || titleText.title || titleText.name || ''
     }
 
     // Handle date extraction for normalized object
+    const releaseDate = mediaType === 'tv'
+      ? (result.first_air_date || result.releaseDate)
+      : (result.release_date || result.releaseDate)
     const year = this.extractYear(
       mediaType === 'tv' ? (result.first_air_date || result.releaseDate) : (result.release_date || result.releaseDate)
     )
+    const normalizedTitle = {
+      userPreferred: titleText,
+      romaji: titleText,
+      english: titleText,
+      native: titleText
+    }
+    const coverImage = {
+      extraLarge: result.poster_path ? `https://image.tmdb.org/t/p/w500${result.poster_path}` : (result.posterImage || result.poster || null),
+      large: result.poster_path ? `https://image.tmdb.org/t/p/w342${result.poster_path}` : (result.posterImage || result.poster || null),
+      medium: result.poster_path ? `https://image.tmdb.org/t/p/w185${result.poster_path}` : (result.posterImage || result.poster || null),
+      color: null
+    }
+    const status = releaseDate
+      ? (new Date(releaseDate).getTime() > Date.now() ? 'NOT_YET_RELEASED' : 'FINISHED')
+      : 'UNKNOWN'
 
     return {
       id: result.id,
-      title: title,
-      mediaType: mediaType,
-      source: 'tmdb',
+      title: normalizedTitle,
+      mediaType,
+      source: 'TMDB',
       externalIds: {
         tmdb: result.id,
         imdb: result.imdb_id
       },
-      year: year,
-      episodes: mediaType === 'tv' ? result.episode_run_time?.[0] : null,
+      tmdbId: result.id,
+      year,
+      seasonYear: year,
+      format: mediaType === 'tv' ? 'TV' : 'MOVIE',
+      type: mediaType === 'tv' ? 'TV' : 'MOVIE',
+      coverImage,
+      bannerImage: result.backdrop_path ? `https://image.tmdb.org/t/p/w1280${result.backdrop_path}` : (result.backdropImage || result.banner || null),
+      episodes: mediaType === 'tv' ? null : 1,
+      duration: Array.isArray(result.episode_run_time) ? result.episode_run_time[0] : result.runtime || null,
       seasons: mediaType === 'tv' ? result.seasons : null,
       description: result.overview || result.description,
-      posterImage: result.poster_path ? `https://image.tmdb.org/t/p/w500${result.poster_path}` : result.poster,
-      backdropImage: result.backdrop_path ? `https://image.tmdb.org/t/p/w1280${result.backdrop_path}` : result.banner,
+      genres: result.genres || [],
+      averageScore: result.vote_average ? Math.round(result.vote_average * 10) : result.averageScore || null,
       rating: result.vote_average || result.rating,
       popularity: result.popularity,
-      status: result.status,
+      status,
+      isAdult: result.adult || false,
+      mediaListEntry: null,
+      relations: { edges: [] },
+      recommendations: { edges: [] },
+      stats: { scoreDistribution: [] },
+      airingSchedule: { nodes: [] },
+      nextAiringEpisode: null,
+      tags: [],
       matchScore: 0, // Will be calculated by resolver
     }
   }

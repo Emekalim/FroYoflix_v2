@@ -1,5 +1,6 @@
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import process from 'node:process'
+import { createHash } from 'node:crypto'
 
 import { toXmlString } from 'powertoast'
 import { youtubeServer } from './youtube.js'
@@ -354,6 +355,109 @@ export default class App {
       } catch (error) {
         console.error('[Folder Scanner] Error:', error)
         event.sender.send('folder-scan-result', [])
+      }
+    })
+
+    ipcMain.handle('library:exists', async (_event, { path }) => {
+      try {
+        await fs.promises.access(path)
+        return true
+      } catch {
+        return false
+      }
+    })
+
+    ipcMain.handle('library:readText', async (_event, { path }) => {
+      if (!path) return null
+      try {
+        return await fs.promises.readFile(path, 'utf8')
+      } catch {
+        return null
+      }
+    })
+
+    ipcMain.handle('library:writeText', async (_event, { path, content = '' }) => {
+      if (!path) throw new Error('library:writeText requires path')
+      await fs.promises.mkdir(dirname(path), { recursive: true })
+      await fs.promises.writeFile(path, content, 'utf8')
+      return true
+    })
+
+    ipcMain.handle('library:scan', async (_event, { path: scanPath, recursive = true }) => {
+      const results = []
+      if (!scanPath) return results
+
+      const walk = async (targetPath) => {
+        let entries = []
+        try {
+          entries = await fs.promises.readdir(targetPath, { withFileTypes: true })
+        } catch {
+          return
+        }
+        for (const entry of entries) {
+          const fullPath = join(targetPath, entry.name)
+          let stats
+          try {
+            stats = await fs.promises.stat(fullPath)
+          } catch {
+            continue
+          }
+          const payload = {
+            path: fullPath,
+            name: entry.name,
+            type: entry.isDirectory() ? 'directory' : 'file',
+            size: stats.size,
+            mtime: stats.mtimeMs
+          }
+          results.push(payload)
+          if (recursive && entry.isDirectory()) await walk(fullPath)
+        }
+      }
+
+      await walk(scanPath)
+      return results
+    })
+
+    ipcMain.handle('library:move', async (_event, { src, dest }) => {
+      if (!src || !dest) throw new Error('library:move requires src and dest')
+      await fs.promises.mkdir(dirname(dest), { recursive: true })
+      try {
+        await fs.promises.rename(src, dest)
+      } catch (error) {
+        if (error?.code !== 'EXDEV') throw error
+        const tmpDest = `${dest}.tmp_froyo`
+        await fs.promises.copyFile(src, tmpDest)
+        const [srcStat, tmpStat] = await Promise.all([fs.promises.stat(src), fs.promises.stat(tmpDest)])
+        if (srcStat.size !== tmpStat.size) {
+          await fs.promises.rm(tmpDest, { force: true })
+          throw new Error(`Cross-device library move verification failed for ${src}`)
+        }
+        await fs.promises.rename(tmpDest, dest)
+        await fs.promises.rm(src, { force: true, recursive: true })
+      }
+      const stats = await fs.promises.stat(dest)
+      return { path: dest, size: stats.size, mtime: stats.mtimeMs }
+    })
+
+    ipcMain.handle('library:hash', async (_event, { path: filePath }) => {
+      if (!filePath) return null
+      const stats = await fs.promises.stat(filePath)
+      if (!stats.isFile()) return null
+      const handle = await fs.promises.open(filePath, 'r')
+      try {
+        const chunkSize = Math.min(1024 * 1024, Math.max(stats.size, 1))
+        const head = Buffer.alloc(chunkSize)
+        const tail = Buffer.alloc(chunkSize)
+        await handle.read(head, 0, chunkSize, 0)
+        const tailStart = Math.max(0, stats.size - chunkSize)
+        await handle.read(tail, 0, chunkSize, tailStart)
+        return createHash('sha1')
+          .update(String(stats.size))
+          .update(head)
+          .update(tail)
+          .digest('hex')
+      } finally {
+        await handle.close()
       }
     })
   }

@@ -34,6 +34,10 @@
   import AudioLabel from "@/components/AudioLabel.svelte";
   import Following from "@/modals/details/components/Following.svelte";
   import { IPC } from "@/modules/bridge.js";
+  import {
+    playLibraryShowEpisode,
+    playLibraryShowItem,
+  } from "@/modules/library/playback.js";
   import SmallCard from "@/components/cards/SmallCard.svelte";
   import SmallCardSk from "@/components/skeletons/SmallCardSk.svelte";
   import Helper from "@/modules/helper.js";
@@ -53,7 +57,13 @@
     ArrowUp10,
   } from "lucide-svelte";
 
-  $: view = $modal[modal.ANIME_DETAILS]?.data;
+  $: modalView = $modal[modal.ANIME_DETAILS]?.data;
+  $: libraryShow = modalView?.__libraryShow || null;
+  $: view = (() => {
+    if (!modalView || typeof modalView !== "object") return modalView;
+    const { __libraryShow, __libraryItemId, ...data } = modalView;
+    return data;
+  })();
   function close() {
     modal.close(modal.ANIME_DETAILS);
   }
@@ -244,6 +254,11 @@
   }
   function play(media, episode, force = false) {
     if (!media) return;
+    if (libraryShow) {
+      if (isValidNumber(episode))
+        return playLibraryShowEpisode(libraryShow, seasonFilter, episode);
+      return playLibraryShowItem(libraryShow, seasonFilter);
+    }
     if (isValidNumber(episode))
       return openTorrentModal(media, episode, force, seasonFilter);
     if (media.status === "NOT_YET_RELEASED") return;
@@ -778,6 +793,7 @@
                 bind:episodeList
                 mobileList={true}
                 media={staticMedia}
+                localAvailability={libraryShow?.seasons || null}
                 {episodeOrder}
                 {seasonFilter}
                 bind:userProgress
@@ -931,6 +947,7 @@
           <EpisodeList
             bind:episodeLoad
             media={staticMedia}
+            localAvailability={libraryShow?.seasons || null}
             {episodeOrder}
             {seasonFilter}
             bind:userProgress

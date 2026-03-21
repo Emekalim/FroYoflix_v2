@@ -122,6 +122,15 @@ export default class Subtitles {
     client.on('subtitleFile', this.handleSubtitleFile)
     clipboard.on('text', this.handleClipboardText)
     clipboard.on('files', this.handleClipboardFiles)
+
+    for (const file of this.files.filter(file => subRx.test(file.name))) {
+      if (file.url) {
+        fetch(file.url)
+          .then(response => response.blob())
+          .then(blob => this.addSingleSubtitleFile(new File([blob], file.name, { type: blob.type || `text/${file.name.split('.').pop()}` })))
+          .catch(error => console.error('[Subtitles] Failed to load external subtitle file:', file.url, error))
+      }
+    }
   }
 
   async addSingleSubtitleFile (file) {

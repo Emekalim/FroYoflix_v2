@@ -7,7 +7,7 @@ const debug = Debug('ui:cache')
 const deepClone = rfdc({ proto: false, circles: false, ownProps: true })
 
 let currentDB = null
-const version = 1
+const version = 2
 
 /**
  * Map of user IDs to their corresponding batch writer instances.
@@ -25,6 +25,7 @@ const batchWriters = new Map()
  */
 export const caches = Object.freeze({
   GENERAL: { key: 'general', database: true },
+  LIBRARY: { key: 'library', database: true },
   QUERIES: { key: 'queries', database: true },
   MAPPINGS: { key: 'mappings', database: true },
   USER_LISTS: { key: 'user_lists', database: true },
@@ -385,6 +386,8 @@ class Cache {
   notifications
   /** @type {import('svelte/store').Writable<any>} */
   history
+  /** @type {import('svelte/store').Writable<any>} */
+  library
   /** @type {Map<string, any>} */
   #pending = new Map()
   /** @type {import('svelte/store').Writable<string>} */
@@ -413,6 +416,7 @@ class Cache {
     const cacheTypes = [
       { key: caches.MEDIA_CACHE, writable: (data) => mediaCache = writable(deepClone(data)) },
       { key: caches.GENERAL, writable: (data) => this.general = writable({ ...generalDefaults, ...deepClone(data) }) },
+      { key: caches.LIBRARY, writable: (data) => this.library = writable(deepClone(data)) },
       { key: caches.QUERIES, writable: (data) => this.queries = writable({ ...queryDefaults, ...deepClone(data) }) },
       { key: caches.MAPPINGS, writable: (data) => this.mappings = writable(deepClone(data)) },
       { key: caches.USER_LISTS, writable: (data) => this.user_lists = writable(deepClone(data)) },
@@ -501,6 +505,7 @@ class Cache {
     this.user_lists = null
     this.notifications = null
     this.history = null
+    this.library = null
     debug(`Cache with ID ${this.cacheID} has been destroyed.`)
   }
 
@@ -512,8 +517,8 @@ class Cache {
    * @warn Do not use this outside of {@link Cache}, use {@link cacheEntry} instead.
    */
   #update(cache, key, data) {
-    if (cache === caches.USER_LISTS || cache === caches.MAPPINGS) {
-      (cache === caches.USER_LISTS ? this.user_lists : this.mappings).update((query) => {
+    if (cache === caches.USER_LISTS || cache === caches.MAPPINGS || cache === caches.LIBRARY) {
+      (cache === caches.USER_LISTS ? this.user_lists : cache === caches.MAPPINGS ? this.mappings : this.library).update((query) => {
         query[key] = typeof data === 'function' ? data(query[key]) : data
         return query
       })
@@ -613,7 +618,12 @@ class Cache {
    * @returns {any} The cached data for the specified key, or `undefined` if it does not exist.
    */
   getEntry(cache, key) {
-    return (cache === caches.GENERAL ? this.general : cache === caches.NOTIFICATIONS ? this.notifications : this.history).value[key]
+    const directStore = cache === caches.GENERAL ? this.general : cache === caches.NOTIFICATIONS ? this.notifications : cache === caches.HISTORY ? this.history : cache === caches.LIBRARY ? this.library : null
+    if (directStore) return directStore.value[key]
+    if (cache === caches.USER_LISTS) return this.user_lists.value[key]
+    if (cache === caches.MAPPINGS) return this.mappings.value[key]
+    if (cache === caches.MEDIA_CACHE) return mediaCache.value[key]
+    return this.queries.value[cache.key]?.[key]
   }
 
   /**
@@ -623,9 +633,19 @@ class Cache {
    * @param {Object} data The cache object to store.
    */
   setEntry(cache, key, data) {
-    (cache === caches.GENERAL ? this.general : cache === caches.NOTIFICATIONS ? this.notifications : this.history).update((query) => {
-      const current = query[key]
-      query[key] = typeof data === 'function' ? data(current) : data
+    const directStore = cache === caches.GENERAL ? this.general : cache === caches.NOTIFICATIONS ? this.notifications : cache === caches.HISTORY ? this.history : cache === caches.LIBRARY ? this.library : null
+    if (directStore) {
+      directStore.update((query) => {
+        const current = query[key]
+        query[key] = typeof data === 'function' ? data(current) : data
+        return query
+      })
+      return
+    }
+    this.queries.update((query) => {
+      if (!query[cache.key]) query[cache.key] = {}
+      const current = query[cache.key][key]
+      query[cache.key][key] = typeof data === 'function' ? data(current) : data
       return query
     })
   }
@@ -638,7 +658,7 @@ class Cache {
    * @returns {Promise<void>} Resolves when the entry has been successfully deleted.
    */
   async deleteEntry(cache, key) {
-    const dataEntry = cache === caches.GENERAL ? this.general : cache === caches.NOTIFICATIONS ? this.notifications : cache === caches.HISTORY ? this.history : cache === caches.USER_LISTS ? this.user_lists : cache === caches.MAPPINGS ? this.mappings : cache === caches.MEDIA_CACHE ? mediaCache : null
+    const dataEntry = cache === caches.GENERAL ? this.general : cache === caches.NOTIFICATIONS ? this.notifications : cache === caches.HISTORY ? this.history : cache === caches.LIBRARY ? this.library : cache === caches.USER_LISTS ? this.user_lists : cache === caches.MAPPINGS ? this.mappings : cache === caches.MEDIA_CACHE ? mediaCache : null
     const store = dataEntry || this.queries
     store.update((query) => {
       const updated = { ...query }
@@ -785,6 +805,23 @@ class Cache {
     this.#pending.set(`${cache.key}:${key}`, promiseData)
     promiseData.finally(() => this.#pending.delete(`${cache.key}:${key}`))
     return promiseData
+  }
+
+  /**
+   * Returns a cloned snapshot of an in-memory cache store.
+   *
+   * @param {keyof typeof caches} cache - The name of the cache (object store).
+   * @returns {Object} A plain object containing all cached entries for the store.
+   */
+  getStore(cache) {
+    if (cache === caches.GENERAL) return deepClone(this.general?.value || {})
+    if (cache === caches.NOTIFICATIONS) return deepClone(this.notifications?.value || {})
+    if (cache === caches.HISTORY) return deepClone(this.history?.value || {})
+    if (cache === caches.LIBRARY) return deepClone(this.library?.value || {})
+    if (cache === caches.USER_LISTS) return deepClone(this.user_lists?.value || {})
+    if (cache === caches.MAPPINGS) return deepClone(this.mappings?.value || {})
+    if (cache === caches.MEDIA_CACHE) return deepClone(mediaCache?.value || {})
+    return deepClone((this.queries?.value?.[cache.key]) || {})
   }
 }
 

@@ -23,6 +23,7 @@
     CalendarSearch,
     Download,
     CloudDownload,
+    Clapperboard,
     Heart,
     Home,
     Search,
@@ -129,6 +130,20 @@
       let:active
     >
       <Home
+        size={btnSize}
+        class="flex-shrink-0 p-5 m-5 rounded"
+        strokeWidth="2.5"
+        color={active ? "currentColor" : "var(--gray-color-very-dim)"}
+      />
+    </SidebarLink>
+    <SidebarLink
+      click={() => page.navigateTo(page.LIBRARY)}
+      _page={page.LIBRARY}
+      icon="library"
+      text="Library"
+      let:active
+    >
+      <Clapperboard
         size={btnSize}
         class="flex-shrink-0 p-5 m-5 rounded"
         strokeWidth="2.5"

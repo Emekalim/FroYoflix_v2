@@ -15,7 +15,10 @@
 
   let media
   $: if (data && !media) media = mediaCache.value[data?.id]
-  mediaCache.subscribe((value) => { if (value && (JSON.stringify(value[media?.id]) !== JSON.stringify(media))) media = value[media?.id] })
+  mediaCache.subscribe((value) => {
+    const nextMedia = value?.[data?.id]
+    if (nextMedia && (JSON.stringify(nextMedia) !== JSON.stringify(media))) media = nextMedia
+  })
   $: maxEp = getMediaMaxEp(media)
 
   function viewMedia () {

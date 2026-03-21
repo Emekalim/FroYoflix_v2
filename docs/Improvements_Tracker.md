@@ -49,19 +49,39 @@ This document tracks major feature implementations, architectural improvements, 
 
 ## 🚧 Partial / In-Progress
 
-### 1. Intelligent Bitrate Selection
+### 1. Managed Offline Library
+**Goal:** Replace full download-folder scans with a managed filesystem + local index for offline browsing and playback.
+-   **Status:** **In Progress**.
+-   **Plan:** [`docs/plans/librarary_implementation.md`](/Users/nebulark/Documents/Workspace/PersonalProjects/FroYoflix_v2/docs/plans/librarary_implementation.md)
+-   **Current State:**
+    -   ✅ Added IndexedDB `library` store support in `common/modules/cache.js` with DB version bump to `2`.
+    -   ✅ Added Electron IPC handlers for `library:move`, `library:scan`, `library:exists`, and `library:hash` in `electron/src/main/app.js`.
+    -   ✅ Added library repository / ingest / path sanitizer / search state modules under `common/modules/library/`.
+    -   ✅ Redirected torrent cache storage to `.froyo/cache` and torrent payloads toward `.froyo/incoming/<infoHash>/`.
+    -   ✅ Added Library navigation, Library Home, and Library Search routes with offline section/search UX.
+    -   ✅ Added managed-library playback lookup and local watch-state updates in `MediaHandler.svelte` and `PlayerPage.svelte`.
+    -   ✅ Added search-driven manual metadata matching for library files, including imported items with missing metadata and library card poster/menu actions for re-selecting metadata.
+    -   ✅ Added grouped Library Show cards that open the existing show details/episode UI, with locally missing episodes rendered as disabled `Local version not available` entries.
+    -   ⚠️ Electron-first delivery: Android-side filesystem integration is still future work.
+    -   ⚠️ Validation is currently limited to targeted unit testing for canonical path generation; broader repo lint/build tooling was unavailable in this workspace.
+-   **Deviations From Original Draft:**
+    -   Removed the separate `libraryPath` setting for v1 and anchored the managed library at `torrentPathNew` to reduce migration complexity.
+    -   Avoided a transient `libraryManaged` flag by persisting the managed incoming path in torrent cache metadata instead.
+    -   Rebuild now indexes both canonical managed folders and incoming folders so the library can recover from cache loss or manual repair scenarios.
+
+### 2. Intelligent Bitrate Selection
 **Goal:** Allow users to choose video quality (e.g., 720p) to save bandwidth/CPU.
 -   **Status:** **Frontend Only**.
 -   **Current State:**
     -   ✅ **Frontend:** `PlayerPage.svelte` includes the 1080p/720p/480p UI.
     -   ❌ **Backend:** `transcoder.js` currently ignores the `quality` parameter.
 
-### 2. TV Schedule Integration
+### 3. TV Schedule Integration
 **Goal:** Show upcoming TV episodes in a calendar view.
 -   **Status:** **Partial / Rolled Back**.
 -   **Context:** Backend logic exists in `sections.js` (`fetchTVSchedule`), but frontend integration was rolled back due to debugging complications. Code remains available for future re-integration.
 
-### 3. TMDB Recommendations Interaction
+### 4. TMDB Recommendations Interaction
 **Goal:** Make TMDB recommendation cards interactive (clickable) like AniList cards.
 -   **Status:** **In Progress**.
 -   **Current State:**

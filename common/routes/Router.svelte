@@ -7,8 +7,11 @@
   import TorrentPage from '@/routes/torrentManager/TorrentPage.svelte'
   import Miniplayer, { isMobile, isSuperSmall } from '@/components/Miniplayer.svelte'
   import SearchPage from '@/routes/search/SearchPage.svelte'
+  import LibraryPage from '@/routes/library/LibraryPage.svelte'
+  import LibrarySearch from '@/routes/library/LibrarySearch.svelte'
   import { cache, caches } from '@/modules/cache.js'
   import { search, key } from '@/modules/sections.js'
+  import { librarySearch, librarySearchKey } from '@/modules/library/searchState.js'
   import { page, modal, playPage } from '@/modules/navigation.js'
 
   export let statusTransition = false
@@ -40,6 +43,10 @@
   <HomePage />
 {:else if $page === page.SEARCH}
   <SearchPage search={search} key={key}/>
+{:else if $page === page.LIBRARY}
+  <LibraryPage />
+{:else if $page === page.LIBRARY_SEARCH}
+  <LibrarySearch search={librarySearch} key={librarySearchKey} />
 {:else if $page === page.SCHEDULE}
   <SchedulePage />
 {:else if $page === page.WATCH_TOGETHER}
