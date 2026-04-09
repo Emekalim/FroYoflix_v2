@@ -56,6 +56,8 @@
   import WPC from '@/modules/wpc.js'
   import { copyToClipboard } from '@/modules/clipboard.js'
   import { toast } from 'svelte-sonner'
+  import { encrypt } from '@/modules/cipher.js'
+  import { Eye, EyeOff } from 'lucide-svelte'
   import Debug from 'debug'
   const debugStore = persisted('debug', '', { serializer: { parse: e => e, stringify: e => e }})
   const debug = Debug('ui:app-settings')
@@ -63,6 +65,25 @@
 
   export let version = ''
   export let settings
+
+  let tmdbInput = ''
+  let showTmdbKey = false
+  let savingTmdbKey = false
+
+  async function saveTmdbKey () {
+    savingTmdbKey = true
+    settings.tmdbApiKey = await encrypt(tmdbInput)
+    window.__TMDB_API_KEY__ = tmdbInput
+    tmdbInput = ''
+    savingTmdbKey = false
+    toast.success('TMDB Key Saved')
+  }
+
+  function clearTmdbKey () {
+    settings.tmdbApiKey = ''
+    window.__TMDB_API_KEY__ = window.env?.TMDB_API_KEY || ''
+    toast.success('TMDB Key Cleared')
+  }
 
   function resetSettings () {
     IPC.emit('set:angle', defaults.angle)
@@ -102,6 +123,50 @@
 
   IPC.on('device-info', writeAppInfo)
 </script>
+
+<h4 class='mb-10 font-weight-bold'>Integrations</h4>
+<SettingCard
+  title='TMDB API Key'
+  description='Enter your own TMDB API key for movie and TV metadata. Get a free key at themoviedb.org. Stored encrypted on this device.'
+>
+  <div class='d-flex flex-column'>
+    <div class='d-flex align-items-center'>
+      {#if showTmdbKey}
+        <input
+          type='text'
+          class='form-control bg-dark'
+          style='width: 22rem;'
+          bind:value={tmdbInput}
+          placeholder={settings.tmdbApiKey ? '••••••••••••••••' : 'Enter your TMDB API key'}
+        />
+      {:else}
+        <input
+          type='password'
+          class='form-control bg-dark'
+          style='width: 22rem;'
+          bind:value={tmdbInput}
+          placeholder={settings.tmdbApiKey ? '••••••••••••••••' : 'Enter your TMDB API key'}
+        />
+      {/if}
+      <button type='button' use:click={() => showTmdbKey = !showTmdbKey} class='btn btn-link px-10 text-muted'>
+        <svelte:component this={showTmdbKey ? EyeOff : Eye} size='1.6rem' />
+      </button>
+    </div>
+    <div class='d-flex mt-5'>
+      <button
+        type='button'
+        use:click={saveTmdbKey}
+        class='btn btn-primary d-flex align-items-center justify-content-center'
+        disabled={!tmdbInput || savingTmdbKey}
+      >
+        <span class='text-truncate'>{savingTmdbKey ? 'Saving...' : 'Save Key'}</span>
+      </button>
+      {#if settings.tmdbApiKey}
+        <button type='button' use:click={clearTmdbKey} class='btn btn-link text-danger ml-10'>Clear</button>
+      {/if}
+    </div>
+  </div>
+</SettingCard>
 
 <h4 class='mb-10 font-weight-bold'>App Settings</h4>
 <SettingCard title='About This App' description="Restart may be required for some settings to take effect. If you don't know what settings do what, use defaults." class='d-lg-none'>

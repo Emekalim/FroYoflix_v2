@@ -1,4 +1,5 @@
 const { join, resolve } = require('path')
+const { DefinePlugin } = require('webpack')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 
 const mode = process.env.NODE_ENV?.trim() || 'development'
@@ -61,6 +62,11 @@ module.exports = [
     resolve: {
       aliasFields: []
     },
+    plugins: [
+      new DefinePlugin({
+        'process.env.TMDB_API_KEY': JSON.stringify(process.env.TMDB_API_KEY || '')
+      })
+    ],
     mode,
     target: 'electron39.0-preload'
   },

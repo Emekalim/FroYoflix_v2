@@ -232,13 +232,17 @@ function setupTorrentClient() {
   })
   client.on('completed', ({ detail }) => {
     debug(`Completed torrent:`, JSON.stringify(detail))
-    const torrents = cache.getEntry(caches.GENERAL, 'completedTorrents') || []
-    if (!torrents.includes(detail?.infoHash)) cache.setEntry(caches.GENERAL, 'completedTorrents', Array.from(new Set([...torrents, detail.infoHash])))
-    deduplicateTorrents(detail?.infoHash, 'stagingTorrents', 'seedingTorrents')
     if (loadedTorrent.value?.infoHash === detail.infoHash) loadedTorrent.update(() => ({}))
     stagingTorrents.update(arr => arr.filter(torrent => torrent.infoHash !== detail.infoHash))
     seedingTorrents.update(arr => arr.filter(torrent => torrent.infoHash !== detail.infoHash))
-    completedTorrents.update(prev => [detail, ...prev.filter(torrent => torrent.infoHash !== detail.infoHash)])
+    if (detail?.persisted !== false) {
+      const torrents = cache.getEntry(caches.GENERAL, 'completedTorrents') || []
+      if (!torrents.includes(detail?.infoHash)) cache.setEntry(caches.GENERAL, 'completedTorrents', Array.from(new Set([...torrents, detail.infoHash])))
+      deduplicateTorrents(detail?.infoHash, 'stagingTorrents', 'seedingTorrents')
+      completedTorrents.update(prev => [detail, ...prev.filter(torrent => torrent.infoHash !== detail.infoHash)])
+    } else {
+      deduplicateTorrents(detail?.infoHash, 'stagingTorrents', 'seedingTorrents', 'completedTorrents')
+    }
     if (ELECTRON && detail?.incomingPath) {
       import('@/modules/library/LibraryIngest.js')
         .then(({ ingestTorrentCompletion }) => ingestTorrentCompletion(detail))
