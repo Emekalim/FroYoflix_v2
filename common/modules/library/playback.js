@@ -1,3 +1,4 @@
+import libraryRepository from '@/modules/library/LibraryRepository.js'
 import { modal } from '@/modules/navigation.js'
 
 function getEpisodeNumbers(item) {
@@ -55,6 +56,63 @@ function selectPreferredShowEpisode(show, season = null) {
   return episodes[0] || null
 }
 
+function hydrateLibraryItem(item) {
+  if (!item?.itemId) return item
+  const storedItem = libraryRepository.getItem(item.itemId) || item
+  return {
+    ...storedItem,
+    preferredFile: item?.preferredFile || libraryRepository.choosePreferredFile(storedItem.itemId),
+    subtitles: item?.subtitles || libraryRepository.getSubtitlesForItem(storedItem.itemId),
+    watch: item?.watch || libraryRepository.getWatch(storedItem.itemId),
+    media: item?.media || libraryRepository.resolveMediaSnapshot(storedItem)
+  }
+}
+
+function normalizeIdentityText(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function sameLibrarySeries(candidate, selectedItem) {
+  if (!candidate || !selectedItem) return false
+  if (candidate?.provider && candidate?.mediaId && selectedItem?.provider && selectedItem?.mediaId) {
+    return candidate.provider === selectedItem.provider && String(candidate.mediaId) === String(selectedItem.mediaId)
+  }
+  return normalizeIdentityText(candidate?.canonicalTitle) === normalizeIdentityText(selectedItem?.canonicalTitle)
+}
+
+function buildAnimeLibraryShow(item) {
+  if (!item?.itemId || item?.mediaType !== 'anime') return null
+
+  const selectedItem = hydrateLibraryItem(item)
+  const episodes = libraryRepository
+    .listItems({ mediaType: 'anime' })
+    .filter(candidate => !candidate?.libraryShow && sameLibrarySeries(candidate, selectedItem))
+    .map(hydrateLibraryItem)
+    .filter(candidate => getEpisodeNumbers(candidate).length > 0)
+    .sort(compareEpisodes)
+
+  if (!episodes.length) return null
+
+  const seasons = {}
+  for (const episodeItem of episodes) {
+    const season = Number(episodeItem?.season || 1)
+    seasons[season] ||= { availableEpisodes: [] }
+    for (const episode of getEpisodeNumbers(episodeItem)) {
+      if (!seasons[season].availableEpisodes.includes(episode)) {
+        seasons[season].availableEpisodes.push(episode)
+      }
+    }
+    seasons[season].availableEpisodes.sort((a, b) => a - b)
+  }
+
+  return {
+    ...selectedItem,
+    episodes,
+    seasons,
+    preferredEpisodeItem: selectPreferredShowEpisode({ episodes })
+  }
+}
+
 export function playLibraryItem(item) {
   const media = item?.media || item?.mediaSnapshot
   const file = item?.preferredFile
@@ -85,6 +143,7 @@ export function playLibraryItem(item) {
     path: file.absolutePath,
     url: `file://${file.absolutePath}`,
     libraryItemId: item.itemId,
+    libraryFileId: file.fileId,
     subtitlePaths: (item.subtitles || []).map((subtitle) => subtitle.absolutePath),
     subtitleFiles,
     media: {
@@ -135,14 +194,12 @@ export function openLibraryItemDetails(item) {
   const media = item?.media || item?.mediaSnapshot
   if (!media) return
 
-  if (item?.libraryShow) {
-    modal.open(modal.ANIME_DETAILS, {
-      ...media,
-      __libraryShow: item.libraryShow,
-      __libraryItemId: item.itemId
-    })
-    return
+  const detailsData = {
+    ...media,
+    __libraryItemId: item?.itemId || null
   }
+  const libraryShow = item?.libraryShow || buildAnimeLibraryShow(item)
+  if (libraryShow) detailsData.__libraryShow = libraryShow
 
-  modal.open(modal.ANIME_DETAILS, media)
+  modal.open(modal.ANIME_DETAILS, detailsData)
 }

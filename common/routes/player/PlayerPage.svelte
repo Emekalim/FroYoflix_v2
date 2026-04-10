@@ -3,6 +3,12 @@
   import { cache, caches } from "@/modules/cache.js";
   import { page, modal, playPage } from "@/modules/navigation.js";
   import {
+    completePlayerStartup,
+    failPlayerStartup,
+    playerStartup,
+    updatePlayerStartup,
+  } from "@/modules/playerStartup.js";
+  import {
     getAnimeProgress,
     setAnimeProgress,
   } from "@/modules/anime/animeprogress.js";
@@ -144,6 +150,11 @@
   let gainNode = null;
   let playbackRate = 1;
   let externalPlayerReady = false;
+  let startupBufferRequest = 0;
+  let startupBufferPending = false;
+  let startupPlaybackPending = false;
+  let initialStartPosition = 0;
+  let initialStartPositionApplied = false;
   $: cache.setEntry(caches.GENERAL, "volume", String(volume || 0));
   $: launchedExternal = false;
   $: externalPlayback =
@@ -300,6 +311,29 @@
     subHeaders = subs?.headers;
   }
 
+  function getStartupBufferTarget() {
+    const configured = Number($settings.playerStartupBufferSeconds);
+    if (!Number.isFinite(configured) || configured <= 0) return 0;
+    if (!Number.isFinite(safeduration) || safeduration <= 0) {
+      return Math.max(0, Math.floor(configured));
+    }
+    return Math.max(
+      0,
+      Math.min(Math.floor(configured), Math.floor(Math.max(safeduration - 1, 0))),
+    );
+  }
+
+  function updateStartupStage(progress, label, detail) {
+    const startupId = playerStartup.value?.id;
+    if (!playerStartup.value?.active || startupId == null) return;
+    updatePlayerStartup({
+      id: startupId,
+      progress,
+      label,
+      detail,
+    });
+  }
+
   function updateFiles(files) {
     if (files?.length) {
       videos = files.filter(
@@ -307,7 +341,7 @@
       );
       if (videos?.length) {
         if (subs) {
-          subs.files = files || [];
+          subs.syncFiles(files || []);
         }
       }
     } else {
@@ -366,6 +400,7 @@
 
   let hls;
   let externalReadyListener;
+  let transcoderPort = null;
   async function handleCurrent(file) {
     // Skip hidden files
     if (file?.name?.startsWith("._")) {
@@ -374,9 +409,14 @@
     }
     paused = true;
     canPlay = false;
+    startupBufferPending = false;
+    startupBufferRequest += 1;
+    initialStartPosition = 0;
+    initialStartPositionApplied = false;
     video?.pause?.();
     externalPlayerReady = false;
     showBuffering();
+    updateStartupStage(24, "Loading video", file?.name || "Preparing stream");
     if (file) {
       if (thumbnailData.video?.src) URL.revokeObjectURL(video?.src);
       Object.assign(thumbnailData, {
@@ -405,6 +445,9 @@
       debug("Video element not found in setCurrent");
       return;
     }
+    initialStartPosition = await resolveInitialStartPosition();
+    targetTime = initialStartPosition;
+    currentTime = initialStartPosition;
     if (!externalPlayback) {
       try {
         // CRITICAL CLEANUP: Destroy previous HLS and detach media
@@ -428,9 +471,11 @@
 
         if (needsTranscoding && ELECTRON) {
           try {
+            updateStartupStage(48, "Starting transcode", "Preparing HLS stream");
             // Get transcoder port
             const port = await window.electron.getTranscoderPort();
             if (!port) throw new Error("Transcoder not available");
+            transcoderPort = port;
 
             // Request HLS URL from transcoder
             const filePath = decodeURIComponent(
@@ -447,11 +492,29 @@
             }
             currentTranscodeHash = hash;
 
+            const startupBufferTarget = Math.max(
+              30,
+              Math.floor(Number($settings.playerStartupBufferSeconds) || 0),
+            );
+            if (startupBufferTarget > 0) {
+              updateStartupStage(
+                58,
+                "Preparing stream",
+                `Waiting for ${startupBufferTarget} seconds of startup media to be transcoded`,
+              );
+              await waitForTranscodeSegments(
+                startupBufferTarget,
+                startupBufferRequest,
+              );
+            }
+
             // Initialize hls.js with optimized buffer settings and resilience
             hls = new Hls({
               debug: false,
-              maxBufferLength: 30,
-              maxMaxBufferLength: 60,
+              maxBufferLength: startupBufferTarget,
+              maxMaxBufferLength: Math.max(60, startupBufferTarget * 2),
+              startFragPrefetch: true,
+              startPosition: initialStartPosition,
               enableWorker: true,
               lowLatencyMode: false,
               maxBufferHole: 0.5, // Allow small unexpected gaps (0.5s)
@@ -464,6 +527,7 @@
 
             hls.loadSource(hlsUrl);
             hls.attachMedia(video);
+            updateStartupStage(74, "Buffering stream", "Waiting for playable segments");
 
             // Error handling
             hls.on(Hls.Events.ERROR, (event, data) => {
@@ -487,7 +551,7 @@
                 } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
                   hls.recoverMediaError();
                 } else {
-                  toast.error("HLS playback failed");
+        toast.error("HLS playback failed");
                 }
               }
             });
@@ -501,26 +565,34 @@
             });
 
             subs = new Subtitles(video, files, current, handleHeaders);
-            await loadAnimeProgress();
           } catch (e) {
             console.error("[HLS] Transcoding failed:", e);
             toast.error("Failed to transcode video");
+            updateStartupStage(
+              62,
+              "Loading video",
+              "Transcode startup failed, loading the file directly",
+            );
             // Fallback to direct playback
             src = file.url;
             subs = new Subtitles(video, files, current, handleHeaders);
             video.load();
-            await loadAnimeProgress();
           }
         } else {
           // Direct playback for supported formats
+          updateStartupStage(68, "Buffering stream", "Loading local file");
           src = file.url;
           subs = new Subtitles(video, files, current, handleHeaders);
           video.load();
-          await loadAnimeProgress();
         }
       } catch (e) {
         console.error("[Player] setCurrent failed:", e);
         toast.error("Failed to load video");
+        startupBufferPending = false;
+        failPlayerStartup({
+          id: playerStartup.value?.id,
+          detail: e?.message || "Failed to load video",
+        });
 
         // Reset state to prevent ghost events
         if (hls) {
@@ -601,7 +673,7 @@
 
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           video.currentTime = time;
-          if (!wasPaused) video.play();
+          if (!wasPaused) requestVideoPlay("quality switch");
         });
       } catch (e) {
         console.error("Quality switch failed:", e);
@@ -636,7 +708,19 @@
     else hasLast = videos.indexOf(current) > 0;
   }
 
-  async function loadAnimeProgress() {
+  async function resolveInitialStartPosition() {
+    if (current?.libraryItemId) {
+      const watch = libraryRepository.getWatch(current.libraryItemId);
+      if (
+        watch &&
+        !watch.completed &&
+        Number.isFinite(Number(watch.positionSec)) &&
+        Number(watch.positionSec) > 0
+      ) {
+        return Math.max(Number(watch.positionSec) - 5, 0);
+      }
+    }
+
     let animeProgress;
     if (
       !current?.media?.media?.id ||
@@ -670,10 +754,22 @@
         mediaId: current.media.media.id,
         episode: current.media.episode,
       });
-    if (!animeProgress) return;
+    if (!animeProgress) return 0;
 
-    const currentTime = Math.max(animeProgress.currentTime - 5, 0); // Load 5 seconds before
-    seek(currentTime - video.currentTime);
+    return Math.max(Number(animeProgress.currentTime || 0) - 5, 0);
+  }
+
+  function applyInitialStartPosition() {
+    if (initialStartPositionApplied || !video) return;
+    initialStartPositionApplied = true;
+    if (!Number.isFinite(initialStartPosition) || initialStartPosition <= 0) return;
+    targetTime = initialStartPosition;
+    currentTime = initialStartPosition;
+    try {
+      video.currentTime = initialStartPosition;
+    } catch (error) {
+      debug("[Player] Failed to apply initial start position:", error);
+    }
   }
 
   function saveAnimeProgress(error = false) {
@@ -750,12 +846,12 @@
   function handleMouseDown({ detail }) {
     if (wasPaused == null) {
       wasPaused = paused;
-      paused = true;
+      requestVideoPause();
     }
     targetTime = (detail / 100) * safeduration;
   }
   function handleMouseUp() {
-    paused = wasPaused;
+    if (!wasPaused) requestVideoPlay("seek resume");
     wasPaused = null;
     currentTime = targetTime;
   }
@@ -834,6 +930,10 @@
     skipPrompt = filler || recap;
   }
   async function autoPlay() {
+    const requestId = ++startupBufferRequest;
+    const targetBuffer = getStartupBufferTarget();
+    startupBufferPending = targetBuffer > 0;
+    startupPlaybackPending = false;
     await promptFiller();
     if (
       (($page === page.PLAYER && modal.length === 0) || pip) &&
@@ -842,16 +942,80 @@
     ) {
       if (externalPlayback) playPause();
       else if (!hidden) {
-        video.play();
+        if (targetBuffer > 0) {
+          updateStartupStage(
+            76,
+            "Buffering stream",
+            `Waiting for ${targetBuffer} seconds of playback buffer`,
+          );
+          try {
+            await waitForStartupReadiness(targetBuffer, requestId);
+          } catch (error) {
+            startupBufferPending = false;
+            failPlayerStartup({
+              id: playerStartup.value?.id,
+              detail: error?.message || "Timed out waiting for startup buffer",
+            });
+            toast.error("Failed to prepare playback", {
+              description:
+                error?.message || "Timed out waiting for startup buffer",
+            });
+            return;
+          }
+          if (requestId !== startupBufferRequest) return;
+        }
+        startupBufferPending = false;
+        startupPlaybackPending = true;
+        updateStartupStage(96, "Starting playback", "Launching video");
+        const started = await requestVideoPlay("autoplay");
+        startupPlaybackPending = false;
+        if (!started) {
+          failPlayerStartup({
+            id: playerStartup.value?.id,
+            detail: "Playback could not be started after startup completed",
+          });
+          return;
+        }
+        completePlayerStartup({
+          id: playerStartup.value?.id,
+          detail: "Playback ready",
+        });
         resetImmerse();
         setTimeout(() => subs?.renderer?.resize(), 200); // stupid fix because video metadata doesn't update for multiple frames
       }
-    } else if (!externalPlayback) video.pause();
+    } else if (!externalPlayback) {
+      startupBufferPending = false;
+      startupPlaybackPending = false;
+      requestVideoPause();
+    }
   }
 
   let watchedListener;
   let androidListener;
   let externalPlaying = false;
+  let playAttemptToken = 0;
+  async function requestVideoPlay(reason = "playback", allowRetry = true) {
+    if (!video || hidden) return false;
+    const token = ++playAttemptToken;
+    try {
+      await video.play();
+      return true;
+    } catch (error) {
+      debug(`[Player] video.play() threw during ${reason}:`, error);
+      if (!allowRetry || token !== playAttemptToken || hidden) return false;
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      if (token !== playAttemptToken || hidden || !video?.paused) return false;
+      return requestVideoPlay(`${reason} retry`, false);
+    }
+    return false;
+  }
+
+  function requestVideoPause() {
+    playAttemptToken += 1;
+    startupPlaybackPending = false;
+    video?.pause?.();
+  }
+
   function playPause() {
     if (hidden) return;
     if (externalPlayback) {
@@ -885,7 +1049,8 @@
         WPC.listen("androidExternal", androidListener);
       }
       WPC.send("externalPlay", { current });
-    } else paused = !paused;
+    } else if (video?.paused) requestVideoPlay("manual toggle");
+    else requestVideoPause();
     resetImmerse();
     setTimeout(() => subs?.renderer?.resize(), 200); // stupid fix because video metadata doesn't update for multiple frames
   }
@@ -897,8 +1062,8 @@
       if (!video?.ended) {
         if (hidden) {
           visibilityPaused = paused;
-          paused = true;
-        } else if (!visibilityPaused) paused = false;
+          requestVideoPause();
+        } else if (!visibilityPaused) requestVideoPlay("visibility restore");
       }
     }
   };
@@ -1485,9 +1650,23 @@
       bufferTimeout = null;
       buffering = false;
     }
+    if (
+      playerStartup.value?.active &&
+      !startupBufferPending &&
+      !startupPlaybackPending &&
+      !video?.paused
+    ) {
+      completePlayerStartup({
+        id: playerStartup.value.id,
+        detail: "Playback ready",
+      });
+    }
   }
 
   function showBuffering() {
+    if (!startupBufferPending) {
+      updateStartupStage(84, "Buffering stream", "Waiting for playback to start");
+    }
     bufferTimeout = setTimeout(() => {
       buffering = true;
       resetImmerse();
@@ -1514,7 +1693,7 @@
     skipPrompt = false;
     if (skip) playNext();
     else {
-      video.play();
+      requestVideoPlay("skip prompt");
       setTimeout(() => subs?.renderer?.resize(), 200); // stupid fix because video metadata doesn't update for multiple frames
     }
   }
@@ -1523,7 +1702,7 @@
     resolvePrompt = false;
     if (resolve) modal.open(modal.FILE_MANAGER);
     else {
-      video.play();
+      requestVideoPlay("resolve prompt");
       setTimeout(() => subs?.renderer?.resize(), 200); // stupid fix because video metadata doesn't update for multiple frames
     }
   }
@@ -1578,6 +1757,241 @@
     }
     return 0;
   }
+
+  async function waitForStartupReadiness(targetSeconds, requestId) {
+    if (hls && currentTranscodeHash && transcoderPort) {
+      return waitForPlayableMedia(requestId);
+    }
+    return waitForStartupBuffer(targetSeconds, requestId);
+  }
+
+  async function waitForTranscodeSegments(targetSeconds, requestId) {
+    const safeTarget = Math.max(0, Number(targetSeconds) || 0);
+    if (!safeTarget || !currentTranscodeHash || !transcoderPort) return;
+
+    const startedAt = Date.now();
+    const timeoutMs = Math.max(30_000, safeTarget * 4_000);
+
+    while (requestId === startupBufferRequest) {
+      const response = await fetch(
+        `http://localhost:${transcoderPort}/status?hash=${encodeURIComponent(currentTranscodeHash)}`,
+      );
+      if (!response.ok) {
+        throw new Error("Failed to read transcoder startup status");
+      }
+      const status = await response.json();
+      const availableSeconds = Math.max(0, Number(status?.playlistDurationSec) || 0);
+      const segmentCount = Math.max(0, Number(status?.segmentCount) || 0);
+      const phase = status?.phase || "starting";
+      const ratio = Math.max(0, Math.min(1, availableSeconds / safeTarget));
+      const detail =
+        phase === "starting"
+          ? "Starting transcoder and generating the first startup segments"
+          : `${Math.min(availableSeconds, safeTarget)} / ${safeTarget} seconds prepared (${segmentCount} segments)`;
+
+      updateStartupStage(
+        76 + Math.round(ratio * 18),
+        "Buffering stream",
+        detail,
+      );
+
+      if (availableSeconds >= safeTarget) return;
+      if (Date.now() - startedAt > timeoutMs) {
+        throw new Error(
+          `Timed out before ${safeTarget} seconds of startup media were prepared`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+
+  async function waitForStartupBuffer(targetSeconds, requestId) {
+    const safeTarget = Math.max(0, Number(targetSeconds) || 0);
+    if (!safeTarget || !video) return;
+
+    const startedAt = Date.now();
+    const timeoutMs = Math.max(30_000, safeTarget * 4_000);
+
+    await new Promise((resolve, reject) => {
+      let finished = false;
+      let interval = null;
+
+      const cleanup = () => {
+        if (interval) clearInterval(interval);
+        video?.removeEventListener?.("progress", checkBuffer);
+        video?.removeEventListener?.("loadeddata", checkBuffer);
+        video?.removeEventListener?.("canplay", checkBuffer);
+        video?.removeEventListener?.("waiting", checkBuffer);
+        video?.removeEventListener?.("error", checkError);
+      };
+
+      const finish = (callback) => {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        callback();
+      };
+
+      const checkError = () => {
+        const mediaError = video?.error;
+        if (!mediaError) return;
+        finish(() =>
+          reject(
+            new Error(
+              mediaError?.message || "Video failed while buffering startup media",
+            ),
+          ),
+        );
+      };
+
+      const checkBuffer = () => {
+        if (requestId !== startupBufferRequest) {
+          finish(resolve);
+          return;
+        }
+        checkError();
+        if (finished) return;
+        const anchorTime = Number.isFinite(targetTime)
+          ? targetTime
+          : Number.isFinite(video?.currentTime)
+            ? video.currentTime
+            : 0;
+        const bufferHealth = getPlaybackBufferHealth(anchorTime);
+        const ratio = Math.max(0, Math.min(1, bufferHealth / safeTarget));
+        updateStartupStage(
+          76 + Math.round(ratio * 18),
+          "Buffering stream",
+          `${Math.min(bufferHealth, safeTarget)} / ${safeTarget} seconds ready`,
+        );
+        if (bufferHealth >= safeTarget) {
+          finish(resolve);
+          return;
+        }
+        if (Date.now() - startedAt > timeoutMs) {
+          finish(() =>
+            reject(
+              new Error(
+                `Timed out before ${safeTarget} seconds of startup buffer became available`,
+              ),
+            ),
+          );
+        }
+      };
+
+      interval = setInterval(checkBuffer, 250);
+      video?.addEventListener?.("progress", checkBuffer);
+      video?.addEventListener?.("loadeddata", checkBuffer);
+      video?.addEventListener?.("canplay", checkBuffer);
+      video?.addEventListener?.("waiting", checkBuffer);
+      video?.addEventListener?.("error", checkError);
+      checkBuffer();
+    });
+  }
+
+  async function waitForPlayableMedia(requestId) {
+    if (!video) return;
+
+    await new Promise((resolve, reject) => {
+      let finished = false;
+      let interval = null;
+      const startedAt = Date.now();
+      const timeoutMs = 30_000;
+
+      const cleanup = () => {
+        if (interval) clearInterval(interval);
+        video?.removeEventListener?.("loadeddata", checkReady);
+        video?.removeEventListener?.("canplay", checkReady);
+        video?.removeEventListener?.("canplaythrough", checkReady);
+        video?.removeEventListener?.("error", checkError);
+      };
+
+      const finish = (callback) => {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        callback();
+      };
+
+      const checkError = () => {
+        const mediaError = video?.error;
+        if (!mediaError) return;
+        finish(() =>
+          reject(
+            new Error(
+              mediaError?.message || "Video failed while preparing playback",
+            ),
+          ),
+        );
+      };
+
+      const checkReady = () => {
+        if (requestId !== startupBufferRequest) {
+          finish(resolve);
+          return;
+        }
+        checkError();
+        if (finished) return;
+
+        const readyState = Number(video?.readyState) || 0;
+        const forwardBuffer = getPlaybackBufferHealth(
+          Number.isFinite(targetTime)
+            ? targetTime
+            : Number.isFinite(video?.currentTime)
+              ? video.currentTime
+              : 0,
+        );
+
+        updateStartupStage(
+          88,
+          "Starting playback",
+          forwardBuffer > 0
+            ? `Startup media prepared, ${forwardBuffer} seconds currently attached`
+            : "Startup media prepared, attaching stream to the player",
+        );
+
+        if (readyState >= 3 || forwardBuffer > 0) {
+          finish(resolve);
+          return;
+        }
+
+        if (Date.now() - startedAt > timeoutMs) {
+          finish(() =>
+            reject(
+              new Error("Timed out while waiting for the player to attach startup media"),
+            ),
+          );
+        }
+      };
+
+      interval = setInterval(checkReady, 200);
+      video?.addEventListener?.("loadeddata", checkReady);
+      video?.addEventListener?.("canplay", checkReady);
+      video?.addEventListener?.("canplaythrough", checkReady);
+      video?.addEventListener?.("error", checkError);
+      checkReady();
+    });
+  }
+
+  function getPlaybackBufferHealth(time) {
+    if (hls?.mainForwardBufferInfo) {
+      const forwardLen = Number(hls.mainForwardBufferInfo.len);
+      if (Number.isFinite(forwardLen)) {
+        return Math.max(0, Math.floor(forwardLen));
+      }
+    }
+    if (hls?.bufferInfo) {
+      try {
+        const bufferInfo = hls.bufferInfo(time, 0);
+        if (Number.isFinite(bufferInfo?.len)) {
+          return Math.max(0, Math.floor(bufferInfo.len));
+        }
+      } catch (error) {
+        debug("[Player] Failed to read hls buffer info:", error);
+      }
+    }
+    return getBufferHealth(time);
+  }
+
   let buffer = 0;
   WPC.listen("progress", (detail) => {
     buffer = detail * 100;
@@ -2224,19 +2638,38 @@
     }}
     on:canplay={hideBuffering}
     on:playing={hideBuffering}
-    on:loadedmetadata={hideBuffering}
     on:ended={tryPlayNext}
     on:loadedmetadata={initThumbnails}
     on:loadedmetadata={findChapters}
-    on:loadedmetadata={autoPlay}
+    on:loadedmetadata={applyInitialStartPosition}
     on:loadedmetadata={checkAudio}
     on:loadedmetadata={checkSubtitle}
     on:loadedmetadata={clearLoadInterval}
-    on:loadedmetadata={loadAnimeProgress}
+    on:loadedmetadata={autoPlay}
     on:leavepictureinpicture={() => {
       pip = false;
     }}><track kind="captions" src="" srclang="en" label="English" /></video
   >
+  {#if $playerStartup.active && !miniplayer}
+    <div class="position-absolute startupOverlay z-60 d-flex flex-column align-items-center justify-content-center text-center px-20">
+      <div
+        class="startupRing d-flex align-items-center justify-content-center"
+        style={`--startup-progress: ${$playerStartup.progress || 0}%`}
+      >
+        <div class="startupRingInner">
+          <div class="startupPercent">{$playerStartup.progress || 0}%</div>
+        </div>
+      </div>
+      <div class="startupLabel mt-15">
+        {$playerStartup.label || "Loading"}
+      </div>
+      {#if $playerStartup.detail}
+        <div class="startupDetail mt-8">
+          {$playerStartup.detail}
+        </div>
+      {/if}
+    </div>
+  {/if}
   {#if stats && !miniplayer}
     <div
       class="position-absolute top-0 bg-tp p-10 ml-20 mt-100 text-monospace rounded z-50"
@@ -2486,6 +2919,7 @@
     <div
       class="position-absolute bufferingDisplay"
       class:bufferingPos={SUPPORTS.isAndroid && !miniplayer}
+      class:startupHidden={$playerStartup.active && !miniplayer}
     />
     {#if currentSkippable}
       <button
@@ -3251,8 +3685,65 @@
     opacity: 1 !important;
     visibility: visible !important;
   }
+  .buffering .middle .bufferingDisplay.startupHidden {
+    opacity: 0 !important;
+    visibility: hidden !important;
+  }
   .pip .bufferingDisplay {
     display: none;
+  }
+
+  .startupOverlay {
+    inset: 0;
+    background:
+      radial-gradient(circle at center, rgba(0, 0, 0, 0.06) 0%, rgba(0, 0, 0, 0.44) 52%, rgba(0, 0, 0, 0.72) 100%);
+    backdrop-filter: blur(6px);
+    pointer-events: none;
+  }
+
+  .startupRing {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at center, rgba(10, 10, 10, 0.92) 63%, transparent 64%),
+      conic-gradient(
+        var(--accent-color) 0 var(--startup-progress),
+        rgba(255, 255, 255, 0.1) var(--startup-progress) 100%
+      );
+    box-shadow:
+      0 10px 30px rgba(0, 0, 0, 0.28),
+      0 0 18px color-mix(in srgb, var(--accent-color) 24%, transparent);
+  }
+
+  .startupRingInner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+  }
+
+  .startupPercent {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.95);
+    letter-spacing: 0.01em;
+    text-shadow: 0 0 12px rgba(0, 0, 0, 0.28);
+  }
+
+  .startupLabel {
+    font-size: 1.65rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.98);
+    letter-spacing: 0.012em;
+  }
+
+  .startupDetail {
+    max-width: 28rem;
+    font-size: 1.2rem;
+    color: rgba(255, 255, 255, 0.68);
+    line-height: 1.4;
   }
 
   @keyframes spin {

@@ -13,6 +13,20 @@ import { episodesList } from '@/modules/episodes.js'
 import { getId } from '@/modules/anime/animehash.js'
 import Debug from 'debug'
 const debug = Debug('ui:rss')
+const torrentIdentifierRx = /(^magnet:){1}|(^[A-F\d]{40}$){1}|(^https?:\/\/.+\.torrent(?:\?.*)?$){1}/i
+
+function createTorrentUri(hash, title) {
+  const safeHash = String(hash || '').trim().toLowerCase()
+  if (!/^[a-f\d]{40}$/i.test(safeHash)) return ''
+  return `magnet:?xt=urn:btih:${safeHash}&dn=${encodeURIComponent(title || safeHash)}`
+}
+
+function getCanonicalTorrentUri(result) {
+  if (torrentIdentifierRx.test(String(result?.uri || '').trim())) return String(result.uri).trim()
+  if (torrentIdentifierRx.test(String(result?.link || '').trim())) return String(result.link).trim()
+  if (result?.hash) return createTorrentUri(result.hash, result.title)
+  return ''
+}
 
 export function parseRSSNodes(nodes) {
   return nodes.map(item => {
@@ -34,6 +48,7 @@ export function parseRSSNodes(nodes) {
     const magnetLink = torrentLink?.toLowerCase().endsWith('.torrent') && infoHash ? `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(title)}${tracker ? `&tr=${tracker}` : ''}` : ''
     return {
       title,
+      uri: magnetLink || torrentLink || infoHash || '?',
       link: magnetLink || torrentLink || '?',
       ...(infoHash ? { hash: infoHash } : {}),
       seeders: item.querySelector('seeders')?.textContent ?? '?',
@@ -213,13 +228,16 @@ class RSSMediaManager {
         ...result,
         episodeData: undefined,
         date: undefined,
+        uri: undefined,
         link: undefined,
         hash: undefined,
         onclick: undefined
       }
       res.date = items[i].date
+      res.uri = items[i].uri
       res.link = items[i].link
       res.hash = items[i].hash
+      res.uri = getCanonicalTorrentUri(res)
       if (!res.episodeRange && !res.parseObject?.episodeRange) {
         const rangeEpisodes = episodesList.handleArray(res.episode, res.parseObject?.file_name)
         if (rangeEpisodes) res.episodeRange = rangeEpisodes
@@ -232,7 +250,7 @@ class RSSMediaManager {
           debug(`Warn: failed fetching episode metadata for ${res.media.title?.userPreferred} episode ${requestEpisode}:`, e.stack)
         }
       }
-      res.onclick = () => add(res.link, { media: res.media, episode: res.episode, episodeRange: res.episodeRange }, res.hash || res.link)
+      res.onclick = () => add(res.uri, { media: res.media, episode: res.episode, episodeRange: res.episodeRange }, res.hash || res.uri)
       return res
     })
   }

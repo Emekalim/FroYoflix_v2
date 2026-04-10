@@ -5,14 +5,14 @@
     import { getHash } from '@/modules/anime/animehash.js'
     import { click } from '@/modules/click.js'
 
-    export function playActive(hash, search, magnet, prompt = true) {
+    export function playActive(hash, search, uri, prompt = true) {
         const autoFile = settings.value.rssAutofile
         const resolvedHash = getHash(search?.media?.id, { episode: search?.episode, client: true, batchGuess: true }, false, true)
         const activeHash = autoFile && getActiveHash([...(hash && hash !== resolvedHash ? [hash] : []), ...(resolvedHash ? [resolvedHash] : [])], false)
         if (activeHash && loadedTorrent.value?.infoHash !== activeHash && loadedTorrent.value?.fileHash !== activeHash) { // We have a cached and active hash with the requested media and episode, its predicted we should use this.
             window.dispatchEvent(new CustomEvent('add', { detail: { resolvedHash: activeHash, search } }))
-        } else if ((autoFile || !prompt) && magnet && (!hash || (hash !== loadedTorrent.value?.infoHash && hash !== loadedTorrent.value?.fileHash))) { // Nothing found, request download from magnet.
-            window.dispatchEvent(new CustomEvent('play-torrent', { detail: { magnet } }))
+        } else if ((autoFile || !prompt) && uri && (!hash || (hash !== loadedTorrent.value?.infoHash && hash !== loadedTorrent.value?.fileHash))) { // Nothing found, request download from torrent URI.
+            window.dispatchEvent(new CustomEvent('play-torrent', { detail: { uri } }))
         } else if (prompt) { // Nothing found and no magnet, prompt user to locate torrent.
             window.dispatchEvent(new CustomEvent('play-anime', {
                 detail: {

@@ -277,6 +277,10 @@ export default class TorrentClient extends WebTorrent {
     debug(`${current ? 'Adding' : 'Staging'} torrent: ${!cache ? JSON.stringify(id) : `${cache.infoHash}:${cache.name}`}`)
 
     const infoHash = cache?.infoHash || await getInfoHash(id)
+    if (!infoHash && typeof id === 'string') {
+      this.dispatchError('Invalid torrent identifier. This result may be incomplete or corrupted.')
+      return
+    }
     const existing = infoHash ? this.torrents.find(torrent => torrent.infoHash === infoHash) : await this.get(structuredClone(id))
     const currentTorrent = current && this.torrents.find(torrent => torrent.current)
     if (currentTorrent) await this.promoteTorrent(currentTorrent, true, !!existing)

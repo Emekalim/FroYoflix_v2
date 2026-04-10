@@ -30,6 +30,7 @@ export default class Subtitles {
     this.tracks = []
     this._tracksString = []
     this._stylesMap = []
+    this._loadedExternalKeys = new Set()
     this.fonts = ['/Roboto.ttf', './NotoSansCJK.otf']
     this.renderer = null
     this.parsed = false
@@ -123,14 +124,39 @@ export default class Subtitles {
     clipboard.on('text', this.handleClipboardText)
     clipboard.on('files', this.handleClipboardFiles)
 
-    for (const file of this.files.filter(file => subRx.test(file.name))) {
+    this.syncFiles(this.files)
+  }
+
+  getExternalSubtitleKey (file) {
+    return file?.path || file?.url || file?.name || null
+  }
+
+  loadExternalSubtitleFiles (files = this.files) {
+    for (const file of (files || []).filter(file => subRx.test(file.name))) {
+      const key = this.getExternalSubtitleKey(file)
+      if (!key || this._loadedExternalKeys.has(key)) continue
+      this._loadedExternalKeys.add(key)
       if (file.url) {
         fetch(file.url)
           .then(response => response.blob())
           .then(blob => this.addSingleSubtitleFile(new File([blob], file.name, { type: blob.type || `text/${file.name.split('.').pop()}` })))
-          .catch(error => console.error('[Subtitles] Failed to load external subtitle file:', file.url, error))
+          .catch(error => {
+            this._loadedExternalKeys.delete(key)
+            console.error('[Subtitles] Failed to load external subtitle file:', file.url, error)
+          })
+      } else if (typeof file.text === 'function') {
+        Promise.resolve(this.addSingleSubtitleFile(file)).catch(error => {
+          this._loadedExternalKeys.delete(key)
+          console.error('[Subtitles] Failed to load external subtitle file:', file.name, error)
+        })
       }
     }
+  }
+
+  syncFiles (files = []) {
+    this.files = files || []
+    this.videoFiles = this.files.filter(file => videoRx.test(file.name))
+    this.loadExternalSubtitleFiles(this.files)
   }
 
   async addSingleSubtitleFile (file) {
@@ -320,6 +346,7 @@ export default class Subtitles {
     this.selected = null
     this.tracks = null
     this.headers = null
+    this._loadedExternalKeys = null
     this.onHeader()
   }
 }

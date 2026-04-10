@@ -138,10 +138,10 @@ export default class Protocol {
   }
 
   /**
-   * @param {string} magnet - The magnet link.
+   * @param {string} uri - The torrent URI.
    */
-  add(magnet) {
-    this.window.webContents.send('play-torrent', { magnet })
+  add(uri) {
+    this.window.webContents.send('play-torrent', { uri })
     ipcMain.emit('window-show')
   }
 

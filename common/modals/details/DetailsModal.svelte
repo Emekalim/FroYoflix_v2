@@ -61,6 +61,7 @@
 
   $: modalView = $modal[modal.ANIME_DETAILS]?.data;
   $: libraryShow = modalView?.__libraryShow || null;
+  $: libraryItemId = modalView?.__libraryItemId || null;
   $: view = (() => {
     if (!modalView || typeof modalView !== "object") return modalView;
     const { __libraryShow, __libraryItemId, ...data } = modalView;
@@ -75,7 +76,45 @@
   let scrollTags = null;
   let scrollGenres = null;
   let staticMedia;
+  function resolveLibraryItem(itemId) {
+    if (!itemId) return null;
+    const item = libraryRepository.getItem(itemId);
+    if (!item) return null;
+    return {
+      ...item,
+      preferredFile: libraryRepository.choosePreferredFile(itemId),
+      subtitles: libraryRepository.getSubtitlesForItem(itemId),
+      watch: libraryRepository.getWatch(itemId),
+      media: libraryRepository.resolveMediaSnapshot(item),
+    };
+  }
+  function getLibraryItemEpisodeNumbers(item) {
+    const first = Number(item?.episodeRange?.first || 0);
+    const last = Number(item?.episodeRange?.last || 0);
+    if (first > 0 && last >= first) {
+      return Array.from({ length: last - first + 1 }, (_, index) => first + index);
+    }
+    const episode = Number(item?.episode || 0);
+    return episode > 0 ? [episode] : [];
+  }
+  function getLibraryLookupIdentity(media, episode = null) {
+    if (!media) return null;
+    const provider = media.source === "TMDB" ? "tmdb" : "anilist";
+    const isMovie = media.format === "MOVIE" || media.episodes === 1;
+    const mediaId =
+      provider === "tmdb"
+        ? media.tmdbId || media.externalIds?.tmdb || media.id
+        : media.id;
+    if (!mediaId) return null;
+    return {
+      provider,
+      mediaId,
+      season: isMovie ? null : (seasonFilter || 1),
+      episode: isMovie ? null : episode,
+    };
+  }
   $: media = mediaCache.value[view?.id] || view;
+  $: selectedLibraryItem = libraryItemId ? resolveLibraryItem(libraryItemId) : null;
   $: {
     if (media && (!staticMedia || staticMedia?.id !== media?.id)) {
       staticMedia = media;
@@ -261,16 +300,22 @@
         return playLibraryShowEpisode(libraryShow, seasonFilter, episode);
       return playLibraryShowItem(libraryShow, seasonFilter);
     }
+    if (selectedLibraryItem?.preferredFile?.absolutePath) {
+      if (isValidNumber(episode)) {
+        const matchesEpisode =
+          Number(selectedLibraryItem?.season || 1) === Number(seasonFilter || 1) &&
+          getLibraryItemEpisodeNumbers(selectedLibraryItem).includes(Number(episode));
+        if (matchesEpisode) return playLibraryItem(selectedLibraryItem);
+      } else {
+        return playLibraryItem(selectedLibraryItem);
+      }
+    }
     // Library-first lookup: check local index before opening torrent UI
     if (isValidNumber(episode) || media.format === "MOVIE" || media.episodes === 1) {
-      const provider = media.source === "TMDB" ? "tmdb" : "anilist";
-      const isMovie = media.format === "MOVIE" || media.episodes === 1;
-      const libraryMatch = await libraryRepository.findPreferredFile({
-        provider,
-        mediaId: media.id,
-        season: isMovie ? null : (seasonFilter || 1),
-        episode: isMovie ? null : episode,
-      });
+      const identity = getLibraryLookupIdentity(media, episode);
+      const libraryMatch = identity
+        ? await libraryRepository.findPreferredFile(identity)
+        : null;
       if (libraryMatch?.file?.absolutePath) {
         return playLibraryItem({
           ...libraryMatch.item,
@@ -314,11 +359,7 @@
       : cachedEpisode && cachedEpisode !== 0
         ? cachedEpisode + 1
         : cachedEpisode;
-    if (torrentOnly) {
-      if (desiredEpisode) return openTorrentModal(cachedMedia, desiredEpisode);
-      if (cachedMedia?.status === "NOT_YET_RELEASED") return;
-      playMedia(cachedMedia);
-    } else play(cachedMedia, desiredEpisode);
+    play(cachedMedia, desiredEpisode, !!torrentOnly);
   }
 
   IPC.on("play-media", (id, episode, torrentOnly) => {
@@ -331,11 +372,11 @@
   });
 
   window.addEventListener("play-torrent", (event) =>
-    add(event.detail.magnet, null, null, null, event.detail.base64),
+    add(event.detail.uri, null, null, null, event.detail.base64),
   );
 
   IPC.on("play-torrent", (detail) =>
-    add(detail.magnet, null, null, null, detail.base64),
+    add(detail.uri, null, null, null, detail.base64),
   );
 
   function sanitize(body) {

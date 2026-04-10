@@ -11,6 +11,11 @@
   import { settings } from "@/modules/settings.js";
   import { page } from "@/modules/navigation.js";
   import {
+    beginPlayerStartup,
+    failPlayerStartup,
+    updatePlayerStartup,
+  } from "@/modules/playerStartup.js";
+  import {
     getKitsuMappings,
     hasZeroEpisode,
     getAniMappings,
@@ -61,14 +66,123 @@
 
   let playFile;
 
+  async function ensureExtractedSubtitleFiles(fileObject, startupId = null) {
+    if (!window.IPC?.invoke || !fileObject?.path || !fileObject?.libraryItemId) {
+      return fileObject?.subtitleFiles || [];
+    }
+
+    if (startupId != null) {
+      updatePlayerStartup({
+        id: startupId,
+        label: "Preparing subtitles",
+        detail: "Extracting embedded text tracks",
+        progress: 28,
+      });
+    }
+
+    let extraction;
+    try {
+      extraction = await window.IPC.invoke("library:extractSubtitles", {
+        path: fileObject.path,
+      });
+    } catch (error) {
+      console.error("[MediaHandler] Subtitle extraction failed:", error);
+      return fileObject?.subtitleFiles || [];
+    }
+    const extractedSubtitles = extraction?.subtitles || [];
+    if (extraction?.errors?.length) {
+      console.warn("[MediaHandler] Subtitle extraction issues:", extraction.errors);
+    }
+    if (!extractedSubtitles.length) return fileObject.subtitleFiles || [];
+
+    const existingFiles = fileObject.subtitleFiles || [];
+    const existingPaths = new Set((fileObject.subtitlePaths || []).filter(Boolean));
+    const existingFilePaths = new Set(existingFiles.map((file) => file.path).filter(Boolean));
+
+    const libraryModule = await import("@/modules/library/LibraryRepository.js");
+    const libraryRepository = libraryModule.default;
+    const { buildSubtitleId } = libraryModule;
+
+    for (const subtitle of extractedSubtitles) {
+      const absolutePath = subtitle.absolutePath;
+      if (!absolutePath) continue;
+      existingPaths.add(absolutePath);
+      if (!existingFilePaths.has(absolutePath)) {
+        existingFiles.push({
+          name: absolutePath.split(/[\\/]/).pop(),
+          path: absolutePath,
+          url: `file://${absolutePath}`,
+          subtitle: true,
+        });
+        existingFilePaths.add(absolutePath);
+      }
+
+      await libraryRepository.attachSubtitleToItem(fileObject.libraryItemId, {
+        subtitleId: buildSubtitleId({
+          absolutePath,
+          itemId: fileObject.libraryItemId,
+        }),
+        itemId: fileObject.libraryItemId,
+        fileId: fileObject.libraryFileId || null,
+        absolutePath,
+        language: subtitle.language || null,
+        format: subtitle.format || null,
+        size: subtitle.size || 0,
+        mtime: subtitle.mtime || Date.now(),
+      });
+    }
+
+    fileObject.subtitleFiles = existingFiles;
+    fileObject.subtitlePaths = Array.from(existingPaths);
+    if (startupId != null) {
+      updatePlayerStartup({
+        id: startupId,
+        label: "Preparing subtitles",
+        detail: `Loaded ${extractedSubtitles.length} embedded subtitle track${extractedSubtitles.length === 1 ? "" : "s"}`,
+        progress: 40,
+      });
+    }
+    return existingFiles;
+  }
+
   async function playLocalFileEntry(fileObject, nowPlayingData = {}) {
-    nowPlaying.set(nowPlayingData);
-    const entries = [fileObject, ...(fileObject.subtitleFiles || [])];
-    processedFiles.set(entries);
-    processed.set(entries);
-    await tick();
-    playFile(fileObject);
-    page.navigateTo(page.PLAYER);
+    const startupId = beginPlayerStartup({
+      label: "Opening player",
+      detail: "Preparing local playback",
+      progress: 8,
+    });
+    try {
+      nowPlaying.set(nowPlayingData);
+      const entries = [fileObject, ...(fileObject.subtitleFiles || [])];
+      processedFiles.set(entries);
+      processed.set(entries);
+      page.navigateTo(page.PLAYER);
+      await tick();
+      updatePlayerStartup({
+        id: startupId,
+        label: "Loading video",
+        detail: fileObject?.name || "Preparing stream",
+        progress: 18,
+      });
+      playFile(fileObject);
+
+      ensureExtractedSubtitleFiles(fileObject, startupId)
+        .then((subtitleFiles) => {
+          if (processedFiles.value?.[0]?.path !== fileObject?.path) return;
+          const updatedEntries = [fileObject, ...(subtitleFiles || [])];
+          processedFiles.set(updatedEntries);
+          processed.set(updatedEntries);
+        })
+        .catch((error) =>
+          console.error("[MediaHandler] Failed to finish subtitle extraction:", error),
+        );
+    } catch (error) {
+      failPlayerStartup({
+        id: startupId,
+        detail: error?.message || "Unable to prepare local playback.",
+      });
+      throw error;
+    }
   }
 
   window.addEventListener("play-library-file", (event) => {
@@ -187,6 +301,7 @@
             path: preferredPath,
             url: `file://${preferredPath}`,
             libraryItemId: libraryMatch.item?.itemId,
+            libraryFileId: libraryMatch.file?.fileId,
             subtitlePaths: (libraryMatch.subtitles || []).map(
               (subtitle) => subtitle.absolutePath,
             ),

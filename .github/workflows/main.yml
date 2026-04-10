@@ -42,12 +42,16 @@ jobs:
           Write-Host "::group::Downloading ffmpeg"
           Write-Host "Fetching ffmpeg essentials build from gyan.dev..."
           Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "ffmpeg.zip"
-          Write-Host "Extracting ffmpeg.exe..."
+          Write-Host "Extracting ffmpeg.exe and ffprobe.exe..."
           Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg-tmp" -Force
           $ffmpegExe = Get-ChildItem -Path "ffmpeg-tmp" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          $ffprobeExe = Get-ChildItem -Path "ffmpeg-tmp" -Recurse -Filter "ffprobe.exe" | Select-Object -First 1
           Copy-Item $ffmpegExe.FullName -Destination "electron/resources/win/ffmpeg.exe"
+          Copy-Item $ffprobeExe.FullName -Destination "electron/resources/win/ffprobe.exe"
           $sizeMB = [math]::Round((Get-Item "electron/resources/win/ffmpeg.exe").Length / 1MB, 1)
           Write-Host "ffmpeg.exe ready ($sizeMB MB)"
+          $sizeMB = [math]::Round((Get-Item "electron/resources/win/ffprobe.exe").Length / 1MB, 1)
+          Write-Host "ffprobe.exe ready ($sizeMB MB)"
           Write-Host "::endgroup::"
 
           # --- HandBrakeCLI ---

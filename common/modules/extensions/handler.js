@@ -7,6 +7,8 @@ import { checkForZero } from '@//components/MediaHandler.svelte'
 import { status } from '@/modules/networking.js'
 import { extensionManager } from '@/modules/extensions/manager.js'
 import MediaResolver from '@/modules/resolver/MediaResolver.js'
+import { searchWithBuiltInEngine, shouldUseBuiltInSearchEngine } from '@/modules/search-engine/index.js'
+import { determineBuiltInMediaType } from '@/modules/search-engine/query-builder.js'
 import Debug from 'debug'
 const debug = Debug('ui:extensions')
 
@@ -15,6 +17,7 @@ const debug = Debug('ui:extensions')
 
 const exclusions = []
 const isDev = location.hostname === 'localhost'
+const torrentIdentifierRx = /(^magnet:){1}|(^[A-F\d]{40}$){1}|(^https?:\/\/.+\.torrent(?:\?.*)?$){1}/i
 
 const video = document.createElement('video')
 if (!isDev) {
@@ -26,30 +29,31 @@ if (!isDev) {
 }
 video.remove()
 
+function isTorrentIdentifier(value) {
+  return torrentIdentifierRx.test(String(value || '').trim())
+}
+
+function createTorrentUri(hash, title) {
+  const safeHash = String(hash || '').trim().toLowerCase()
+  if (!/^[a-f\d]{40}$/i.test(safeHash)) return ''
+  if (!safeHash) return ''
+  return `magnet:?xt=urn:btih:${safeHash}&dn=${encodeURIComponent(title || safeHash)}`
+}
+
+function getCanonicalTorrentUri(result) {
+  if (isTorrentIdentifier(result?.uri)) return String(result.uri).trim()
+  if (isTorrentIdentifier(result?.link)) return String(result.link).trim()
+  if (result?.hash) return createTorrentUri(result.hash, result.title)
+  return ''
+}
+
 /**
  * Determines the media type based on media properties
  * @param {import('@/modules/al.js').Media} media - The media object to analyze
  * @returns {'anime' | 'tv' | 'movie'} - The determined media type
  */
 function determineMediaType(media) {
-  if (!media) return 'anime' // default to anime
-
-  // If from TMDB source, check format field
-  if (media.source === 'TMDB') {
-    if (media.format === 'TV') return 'tv'
-    if (media.format === 'MOVIE') return 'movie'
-  }
-
-  // If from AniList source, check format field
-  if (media.source === 'ANILIST' || !media.source) {
-    // Anime formats
-    if (['ANIME', 'OVA', 'ONA', 'SPECIAL'].includes(media.format)) return 'anime'
-    if (media.format === 'TV') return 'tv'
-    if (media.format === 'MOVIE') return 'movie'
-  }
-
-  // Fallback: default to anime for unknown sources
-  return 'anime'
+  return determineBuiltInMediaType(media)
 }
 
 /**
@@ -58,6 +62,24 @@ function determineMediaType(media) {
  * Returns a Map of extension results keyed by extension id, each containing metadata and a result promise.
  */
 export async function getResultsFromExtensions({ media, episode, season, batch, movie, resolution }) {
+  if (shouldUseBuiltInSearchEngine(settings.value)) {
+    debug(`Using built-in desktop search engine for ${media?.id}:${media?.title?.userPreferred}`)
+    const builtInMap = await searchWithBuiltInEngine({ media, episode, season, batch, movie, resolution })
+    for (const [key, entry] of builtInMap) {
+      builtInMap.set(key, {
+        ...entry,
+        promise: entry.promise.then(async ({ results, errors }) => {
+          if (results?.length) {
+            const parseObjects = await anitomyscript(results.map(r => r.title))
+            results.forEach((r, i) => { r.parseObject = parseObjects[i] })
+          }
+          return { results: results ?? [], errors: errors ?? [] }
+        })
+      })
+    }
+    return builtInMap
+  }
+
   await extensionManager.whenReady.promise
   debug(`Fetching sources for ${media?.id}:${media?.title?.userPreferred} ${episode} ${batch} ${movie} ${resolution}`)
 
@@ -73,10 +95,10 @@ export async function getResultsFromExtensions({ media, episode, season, batch, 
   if (media.id) ids.anilist = media.id
   if (media.idMal) ids.mal = media.idMal
   if (anidbAid) ids.anidb = anidbAid
-  if (media.imdbId) ids.imdb = media.imdbId
-  if (media.tmdbId) ids.tmdb = media.tmdbId
-  if (media.tvdbId) ids.tvdb = media.tvdbId
-  if (media.traktId) ids.trakt = media.traktId
+  if (media.imdbId || media.externalIds?.imdb) ids.imdb = media.imdbId || media.externalIds.imdb
+  if (media.tmdbId || media.externalIds?.tmdb) ids.tmdb = media.tmdbId || media.externalIds.tmdb
+  if (media.tvdbId || media.externalIds?.tvdb) ids.tvdb = media.tvdbId || media.externalIds.tvdb
+  if (media.traktId || media.externalIds?.trakt) ids.trakt = media.traktId || media.externalIds.trakt
 
   /** @type {Options} */
   const options = {
@@ -334,10 +356,11 @@ export function dedupe(entries) {
   /** @type {Record<string, Result>} */
   const deduped = {}
   for (const entry of entries) {
-    normalizeResult(entry)
+    if (!normalizeResult(entry)) continue
     if (deduped[entry.hash] && !deduped[entry.hash]?.source?.managed) {
       const dupe = deduped[entry.hash]
       dupe.title = MediaResolver.cleanFileName(entry.title)
+      dupe.uri ||= entry.uri
       dupe.link = entry.link
       dupe.id ??= entry.id
       dupe.seeders ||= entry.seeders >= 30000 ? 0 : entry.seeders
@@ -362,6 +385,10 @@ export function dedupe(entries) {
 
 /** @param {Result} result */
 function normalizeResult(result) {
+  result.uri = getCanonicalTorrentUri(result)
+  if (!result.uri) return false
+  if (!result.link) result.link = result.uri
+
   // Normalize Size (handle string formatted sizes)
   // If size is missing or empty, try to find an alias
   if (!result.size) {
@@ -428,4 +455,5 @@ function normalizeResult(result) {
   if (result.seeders === undefined && result.Seeders !== undefined) result.seeders = Number(result.Seeders)
   if (result.leechers === undefined && result.Leechers !== undefined) result.leechers = Number(result.Leechers)
   if (result.downloads === undefined && result.Downloads !== undefined) result.downloads = Number(result.Downloads)
+  return true
 }

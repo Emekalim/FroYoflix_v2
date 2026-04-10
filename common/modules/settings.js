@@ -1,6 +1,7 @@
 import { cache, caches } from '@/modules/cache.js'
 import { writable } from 'simple-store-svelte'
 import { defaults } from '@/modules/util.js'
+import { isElectronRuntime } from '@/modules/search-engine/runtime.js'
 import { toast } from 'svelte-sonner'
 import { IPC } from '@/modules/bridge.js'
 import Debug from 'debug'
@@ -25,6 +26,10 @@ window.onbeforeunload = function (event) {
 }
 
 let storedSettings = cache.getEntry(caches.GENERAL, 'settings')
+if (isElectronRuntime()) {
+  // Force the desktop rollout onto the built-in search engine even if older cached settings say otherwise.
+  storedSettings = { ...storedSettings, useBuiltInSearchEngine: true }
+}
 let scopedDefaults
 try {
   setDefaults()

@@ -23,6 +23,7 @@ export interface SourceConfig {
 
 export interface TorrentResult {
     title: string
+    uri: string
     link: string
     id?: number
     seeders: number

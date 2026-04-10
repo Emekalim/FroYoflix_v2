@@ -88,11 +88,11 @@ export default class Protocol {
   }
 
   /**
-   * @param {string} magnet - The magnet link.
+   * @param {string} uri - The torrent URI.
    * @param {boolean} base64 - If the data needs to be converted from `Base64` to `Uint8Array`
    */
-  add(magnet, base64 = false) {
-    IPC.emit('play-torrent', { magnet, base64 })
+  add(uri, base64 = false) {
+    IPC.emit('play-torrent', { uri, base64 })
     IPC.emit('window-show')
   }
 

@@ -24,6 +24,7 @@
     getResultsFromExtensions,
     updatePeerCounts,
   } from "@/modules/extensions/handler.js";
+  import { compareTorrentResults, diversifyTorrentResults } from "@/modules/search-engine/result-ranking.js";
   import { getId, getHash } from "@/modules/anime/animehash.js";
   import MediaResolver from "@/modules/resolver/MediaResolver.js";
   import { anilistClient } from "@/modules/anilist.js";
@@ -179,7 +180,7 @@
    * @param {Result[]} results
    * @param {string} sort
    */
-  function sortResults(results, sort) {
+  function sortResults(results, sort, search) {
     if (!results) return { results: [], hiddenResults: [] };
     const deduped = Array.from(dedupe(results)).map((result) => {
       if (
@@ -194,29 +195,11 @@
         };
       return result;
     });
-    return {
-      results: deduped
+    const visibleResults = deduped
         .filter((entry) => entry.seeders > 0 || entry.source?.managed)
-        .sort((a, b) => {
-          switch (sort) {
-            case "smallest":
-              return a.size - b.size;
-            case "best":
-              return (
-                (b.type === "best") - (a.type === "best") ||
-                (b.type === "alt") - (a.type === "alt")
-              );
-            case "batch":
-              return (b.type === "batch") - (a.type === "batch");
-            case "new":
-              return new Date(b.date) - new Date(a.date);
-            case "old":
-              return new Date(a.date) - new Date(b.date);
-            case "seeders":
-            default:
-              return b.seeders - a.seeders;
-          }
-        }),
+        .sort((a, b) => compareTorrentResults(a, b, sort, search));
+    return {
+      results: diversifyTorrentResults(visibleResults, search, sort),
       hiddenResults: deduped.filter(
         (entry) => !entry.seeders && !entry.source?.managed,
       ),
@@ -304,19 +287,21 @@
   }
 
   const movie = isMovie(search.media);
-  let batch =
-    search.media.status === "FINISHED" &&
-    (!settings.value.preferDubs || dubFinished()) &&
-    !movie;
+  let batch = false; // Batch search disabled until UI toggle is added
 
   const results = writable({});
   function addResults(newItems, source) {
-    if (!newItems?.length) return "";
+    const normalizedItems = Array.isArray(newItems)
+      ? newItems
+      : Array.isArray(newItems?.results)
+        ? newItems.results
+        : [];
+    if (!normalizedItems.length) return "";
     results.update((r) => ({
       ...r,
       torrents: [
         ...(r?.torrents ?? []),
-        ...newItems.map((item) => ({ ...item, source })),
+        ...normalizedItems.map((item) => ({ ...item, source })),
       ],
     }));
     return "";
@@ -354,6 +339,7 @@
       }
       cachedTorrents.push({
         title,
+        uri: torrent.magnetURI,
         link: torrent.magnetURI,
         seeders: torrent.totalSeeders ?? 0,
         leechers: torrent.totalLeechers ?? 0,
@@ -513,7 +499,7 @@
   $: queries = queryExtensions({ ...search }, resolution);
   $: errors = getErrors({ ...search }, queries);
 
-  $: queryResults = sortResults($results?.torrents, $settings.torrentSort);
+  $: queryResults = sortResults($results?.torrents, $settings.torrentSort, search);
   $: lookup = queryResults?.results;
 
   $: best = null;
@@ -574,7 +560,7 @@
             },
     });
     add(
-      result.link,
+      result.uri,
       { media: search?.media, episode: search?.episode },
       result.hash,
     );
@@ -926,7 +912,7 @@
         />{/if}
       {#if lastMagnet}
         {#each filterResults(lookup, searchText) as result}
-          {#if (result.link === lastMagnet.link || result.hash === lastMagnet.hash) && (result.seeders ?? 0) > 1 && best?.link !== lastMagnet.link && best?.hash !== lastMagnet.hash}
+          {#if (result.uri === lastMagnet.uri || result.hash === lastMagnet.hash) && (result.seeders ?? 0) > 1 && best?.uri !== lastMagnet.uri && best?.hash !== lastMagnet.hash}
             <TorrentCard
               type="magnet"
               {result}
@@ -939,7 +925,7 @@
       {/if}
     {/if}
     {#each filterResults(lookup, searchText) as result}
-      {#if best?.link !== result.link && best?.hash !== result.hash && (!lastMagnet || result.link !== lastMagnet.link || result.hash !== lastMagnet.hash || (result.seeders ?? 0) <= 1)}
+      {#if best?.uri !== result.uri && best?.hash !== result.hash && (!lastMagnet || result.uri !== lastMagnet.uri || result.hash !== lastMagnet.hash || (result.seeders ?? 0) <= 1)}
         <TorrentCard
           {result}
           {play}
@@ -971,7 +957,7 @@
       </button>
       {#if viewHidden}
         {#each filterResults(lookupHidden, searchText) as result}
-          {#if (!best || (best.link !== result.link && best.hash !== result.hash)) && (!lastMagnet || result.link !== lastMagnet.link || result.hash !== lastMagnet.hash || (result.seeders ?? 0) <= 1)}
+          {#if (!best || (best.uri !== result.uri && best.hash !== result.hash)) && (!lastMagnet || result.uri !== lastMagnet.uri || result.hash !== lastMagnet.hash || (result.seeders ?? 0) <= 1)}
             <div class="unavailable">
               <TorrentCard
                 {result}

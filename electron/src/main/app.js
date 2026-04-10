@@ -17,6 +17,7 @@ import Updater from './updater.js'
 import Dialog from './dialog.js'
 import Debug from './debugger.js'
 import { Transcoder } from './transcoder.js'
+import { registerSearchEngineHandlers } from './search-engine/index.js'
 
 export default class App {
   icon = nativeImage.createFromPath(join(__dirname, process.platform === 'win32' ? '/icon_filled.ico' : '/icon_filled.png'))
@@ -460,6 +461,13 @@ export default class App {
         await handle.close()
       }
     })
+
+    ipcMain.handle('library:extractSubtitles', async (_event, { path: filePath }) => {
+      if (!filePath) throw new Error('library:extractSubtitles requires path')
+      return this.transcoder.extractTextSubtitles(filePath)
+    })
+
+    registerSearchEngineHandlers(ipcMain)
   }
 
   makeWebTorrentWindow() {

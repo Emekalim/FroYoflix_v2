@@ -1,20 +1,30 @@
 import http from 'http'
 import { createHash } from 'crypto'
 import { statSync, existsSync, createReadStream } from 'fs'
-import { mkdir, rm } from 'fs/promises'
-import { join, basename } from 'path'
+import { mkdir, rm, stat } from 'fs/promises'
+import { join, basename, dirname } from 'path'
 import { app } from 'electron'
 import { spawn } from 'child_process'
 import ffmpeg from 'fluent-ffmpeg'
 import getPort from 'get-port'
+import {
+    buildSubtitleExtractionPlan
+} from './subtitle-extraction.js'
 
 // Set FFmpeg binary path — only require ffmpeg-static in dev (it's not bundled in the packaged app)
 const ffmpegBinaryPath = app.isPackaged
     ? join(process.resourcesPath, 'bin', 'ffmpeg')
     : require('ffmpeg-static')
+const ffprobeBinaryPath = app.isPackaged
+    ? (existsSync(join(process.resourcesPath, 'bin', 'ffprobe'))
+        ? join(process.resourcesPath, 'bin', 'ffprobe')
+        : require('ffprobe-static').path)
+    : require('ffprobe-static').path
 
 console.log('[Transcoder] FFmpeg binary path:', ffmpegBinaryPath)
 ffmpeg.setFfmpegPath(ffmpegBinaryPath)
+console.log('[Transcoder] FFprobe binary path:', ffprobeBinaryPath)
+ffmpeg.setFfprobePath(ffprobeBinaryPath)
 
 /**
  * Transcoder Service
@@ -69,6 +79,91 @@ export class Transcoder {
     async ensureTempDir() {
         await mkdir(this.tempDir, { recursive: true })
         await mkdir(this.repairDir, { recursive: true })
+    }
+
+    async probe(filePath) {
+        return new Promise((resolve, reject) => {
+            ffmpeg.ffprobe(filePath, (error, metadata) => {
+                if (error) reject(error)
+                else resolve(metadata)
+            })
+        })
+    }
+
+    async runFFmpeg(args) {
+        return new Promise((resolve, reject) => {
+            const proc = spawn(ffmpegBinaryPath, args)
+            let stderr = ''
+
+            proc.stderr.on('data', (chunk) => {
+                stderr += chunk.toString()
+            })
+
+            proc.on('error', reject)
+            proc.on('close', (code) => {
+                if (code === 0) resolve()
+                else reject(new Error(stderr.trim() || `FFmpeg exited with code ${code}`))
+            })
+        })
+    }
+
+    async extractTextSubtitles(filePath) {
+        if (!filePath || !existsSync(filePath)) {
+            throw new Error('Subtitle extraction requires an existing file path')
+        }
+
+        const [metadata, sourceStats] = await Promise.all([
+            this.probe(filePath),
+            stat(filePath)
+        ])
+        const plan = buildSubtitleExtractionPlan({
+            filePath,
+            streams: metadata?.streams || []
+        })
+
+        if (!plan.length) return { subtitles: [], errors: [] }
+
+        const subtitles = []
+        const errors = []
+
+        for (const entry of plan) {
+            try {
+                let destinationStats = null
+                try {
+                    destinationStats = await stat(entry.destinationPath)
+                } catch {}
+
+                if (!destinationStats || destinationStats.mtimeMs < sourceStats.mtimeMs) {
+                    await mkdir(dirname(entry.destinationPath), { recursive: true })
+                    await this.runFFmpeg([
+                        '-y',
+                        '-i', filePath,
+                        '-map', `0:${entry.index}`,
+                        '-vn',
+                        '-an',
+                        '-dn',
+                        '-c:s', entry.encoder,
+                        entry.destinationPath
+                    ])
+                    destinationStats = await stat(entry.destinationPath)
+                }
+
+                subtitles.push({
+                    absolutePath: entry.destinationPath,
+                    language: entry.language,
+                    format: entry.format,
+                    size: destinationStats.size,
+                    mtime: destinationStats.mtimeMs
+                })
+            } catch (error) {
+                errors.push({
+                    streamIndex: entry.index,
+                    message: error.message
+                })
+            }
+        }
+
+        return { subtitles, errors }
     }
 
     /**
@@ -135,6 +230,75 @@ export class Transcoder {
         }
     }
 
+    getPlaylistStatus(hash) {
+        const playlistPath = join(this.tempDir, hash, 'playlist.m3u8')
+        if (!existsSync(playlistPath)) {
+            return {
+                exists: false,
+                hash,
+                segmentCount: 0,
+                playlistDurationSec: 0,
+                completed: false
+            }
+        }
+
+        const { readFileSync } = require('fs')
+        const content = readFileSync(playlistPath, 'utf8')
+        const lines = content.split(/\r?\n/)
+        let playlistDurationSec = 0
+        let segmentCount = 0
+
+        for (const line of lines) {
+            if (line.startsWith('#EXTINF:')) {
+                const duration = Number(line.replace('#EXTINF:', '').split(',')[0])
+                if (Number.isFinite(duration)) {
+                    playlistDurationSec += duration
+                    segmentCount += 1
+                }
+            }
+        }
+
+        return {
+            exists: true,
+            hash,
+            segmentCount,
+            playlistDurationSec: Math.max(0, Math.floor(playlistDurationSec)),
+            completed: content.includes('#EXT-X-ENDLIST')
+        }
+    }
+
+    getTranscodeStatus(hash) {
+        const playlistStatus = this.getPlaylistStatus(hash)
+        const active = this.activeTranscodes.has(hash)
+        const firstSegmentExists = playlistStatus.segmentCount > 0
+
+        let phase = 'idle'
+        if (playlistStatus.completed) phase = 'completed'
+        else if (active && !playlistStatus.exists) phase = 'starting'
+        else if (active && !firstSegmentExists) phase = 'starting'
+        else if (active && firstSegmentExists) phase = 'preparing'
+        else if (playlistStatus.exists && firstSegmentExists) phase = 'prepared'
+        else if (playlistStatus.exists) phase = 'stalled'
+
+        return {
+            ...playlistStatus,
+            active,
+            firstSegmentExists,
+            phase
+        }
+    }
+
+    async ensureTranscoding(filePath, hash) {
+        const status = this.getTranscodeStatus(hash)
+        if (status.completed || status.active) return this.getTranscodeStatus(hash)
+
+        if (!status.exists || status.phase === 'stalled') {
+            await this.startTranscoding(filePath, hash)
+        }
+
+        return this.getTranscodeStatus(hash)
+    }
+
     /**
      * Start HTTP server for HLS streaming
      */
@@ -166,12 +330,14 @@ export class Transcoder {
 
                 const hash = this.getCacheKey(filePath)
                 console.log('[Transcoder] Init for:', filePath, 'Hash:', hash)
+                const status = await this.ensureTranscoding(filePath, hash)
 
                 res.writeHead(200, { 'Content-Type': 'application/json' })
                 res.end(JSON.stringify({
                     // CRITICAL: Include file path in playlist URL for stateless design
                     url: `http://localhost:${this.port}/hls/${hash}/playlist.m3u8?file=${encodeURIComponent(filePath)}`,
-                    hash
+                    hash,
+                    status
                 }))
                 return
             }
@@ -196,6 +362,20 @@ export class Transcoder {
                     res.writeHead(404)
                     res.end('Not found or not running')
                 }
+                return
+            }
+
+            // Route: /status?hash=<hash>
+            if (url.pathname === '/status') {
+                const hash = url.searchParams.get('hash')
+                if (!hash) {
+                    res.writeHead(400)
+                    res.end('Missing hash')
+                    return
+                }
+
+                res.writeHead(200, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify(this.getTranscodeStatus(hash)))
                 return
             }
 

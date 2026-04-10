@@ -16,8 +16,23 @@ import Debug from 'debug'
 const debug = Debug('ui:torrent')
 
 const excludedToastMessages = ['no buffer space', 'localDescription']
-const torrentRx = /(^magnet:){1}|(^[A-F\d]{8,40}$){1}|(.*\.torrent$){1}/i
+const torrentRx = /(^magnet:){1}|(^[A-F\d]{40}$){1}|(.*\.torrent$){1}/i
 let _settings
+
+function isPlayableTorrentIdentifier(torrentID, base64 = false) {
+  if (base64) return true
+  if (torrentID instanceof Uint8Array) return true
+  const candidate = String(torrentID || '').trim()
+  if (!candidate) return false
+  if (candidate.startsWith('magnet:')) {
+    // Require a valid btih hash: 40-char hex (v1), 32-char base32, or 64-char hex (v2)
+    return /[?&]xt=urn:btih:([A-F\d]{40,64}|[A-Z2-7]{32})([&\s#]|$)/i.test(candidate)
+  }
+  if (/^[A-F\d]{40}$/i.test(candidate)) return true
+  if (/^https?:\/\/.+\.torrent(\?.*)?$/i.test(candidate)) return true
+  return false
+}
+
 class TorrentWorker extends EventTarget {
 
   constructor() {
@@ -99,6 +114,13 @@ if (!SUPPORTS.isAndroid) {
 
 export async function add(torrentID, search, hash, magnet, base64 = false) {
   if (torrentID) {
+    if (!isPlayableTorrentIdentifier(torrentID, base64)) {
+      console.error('Invalid torrent identifier rejected before send', { torrentID, search, hash, magnet, base64 })
+      toast.error('Invalid torrent identifier', {
+        description: 'This result did not include a playable magnet, hash, or .torrent URL.'
+      })
+      return
+    }
     debug('Adding torrent', JSON.stringify({ torrentID, search, hash, magnet }))
     files.set([])
     page.navigateTo(page.PLAYER)
@@ -110,6 +132,13 @@ export async function add(torrentID, search, hash, magnet, base64 = false) {
 }
 export async function stage(torrentID, search, hash) {
   if (torrentID) {
+    if (!isPlayableTorrentIdentifier(torrentID, false)) {
+      console.error('Invalid staged torrent identifier rejected before send', { torrentID, search, hash })
+      toast.error('Invalid torrent identifier', {
+        description: 'This result did not include a playable magnet, hash, or .torrent URL.'
+      })
+      return
+    }
     debug('Pre-Adding torrent', JSON.stringify({ torrentID, search, hash }))
     if (hash && search) setHash(hash, { mediaId: search.media?.id, episode: search.episode, client: true })
     client.send('stage', { id: torrentID, hash: (hash === torrentID && torrentID) || false })

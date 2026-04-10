@@ -49,6 +49,20 @@ This document tracks major feature implementations, architectural improvements, 
 
 ## 🚧 Partial / In-Progress
 
+### 1. Native Desktop Torrent Search Engine
+**Goal:** Replace the hosted torrent-search dependency on desktop with a FroYo-native built-in search engine.
+-   **Status:** **In Progress**.
+-   **Plan:** [`docs/plans/2026-04-09-search-engine-v1.md`](/Users/nebulark/Documents/Workspace/PersonalProjects/FroYoflix_v2/docs/plans/2026-04-09-search-engine-v1.md)
+-   **Tracker:** [`docs/plans/2026-04-09-search-engine-v1-tracker.md`](/Users/nebulark/Documents/Workspace/PersonalProjects/FroYoflix_v2/docs/plans/2026-04-09-search-engine-v1-tracker.md)
+-   **Architecture Audit:** [`docs/plans/2026-04-09-provider-architecture-audit.md`](/Users/nebulark/Documents/Workspace/PersonalProjects/FroYoflix_v2/docs/plans/2026-04-09-provider-architecture-audit.md)
+-   **Current Scope:**
+    -   Electron-only rollout behind internal `useBuiltInSearchEngine` flag.
+    -   `Nyaa` for anime, `YTS + Torrent Downloads` for movies, and `showRSS + Torrent Downloads` for TV.
+    -   Fetching/parsing moved into Electron main-process IPC handlers.
+    -   Existing torrent modal ranking, AniTomy parsing, dedupe, and peer scraping preserved after search.
+    -   Anime query generation now uses a staged plan tuned to the old extension's behavior: preferred exact episode searches first, broader fallbacks later, and strict batch-only searches when batch mode is enabled.
+    -   Torrent launch/queue now uses a dedicated `uri` field instead of overloading `link`, and the remaining episode/RSS/protocol callers have been aligned to that contract.
+
 ### 1. Managed Offline Library
 **Goal:** Replace full download-folder scans with a managed filesystem + local index for offline browsing and playback.
 -   **Status:** **In Progress**.
@@ -62,12 +76,18 @@ This document tracks major feature implementations, architectural improvements, 
     -   ✅ Added managed-library playback lookup and local watch-state updates in `MediaHandler.svelte` and `PlayerPage.svelte`.
     -   ✅ Added search-driven manual metadata matching for library files, including imported items with missing metadata and library card poster/menu actions for re-selecting metadata.
     -   ✅ Added grouped Library Show cards that open the existing show details/episode UI, with locally missing episodes rendered as disabled `Local version not available` entries.
+    -   ✅ **(2026-04-10)** Added desktop embedded text-subtitle extraction for library playback — Electron now probes local media for text subtitle streams, extracts them into the canonical `Subtitles/` sidecar folder next to the managed file, and registers those files in the existing library subtitle store so normal sidecar subtitle playback can pick them up on the same session and future plays.
+    -   ✅ **(2026-04-10)** Moved local-library subtitle extraction off the click-critical path and added a staged player startup overlay — opening a locally managed episode now navigates to the player immediately, shows a Netflix-style progress overlay while playback is being prepared, and lets extracted sidecar subtitles join the current session after the player is already open.
+    -   ✅ **(2026-04-10)** Added a configurable built-in player startup buffer threshold — playback now waits for a default 30 seconds of prepared startup media before auto-starting, and the threshold is exposed in Player settings so it can be tuned or disabled (`0`) per user preference. For local HLS transcodes the startup loop now warms the transcoder during `/init` instead of waiting for the first playlist request to kick it off, reports explicit transcode phases through `/status`, treats the threshold as a minimum prepared-media requirement before attaching `hls.js`, and gives the player an explicit `startPosition` signal so brand-new playback starts at `0` while future resume logic can plug into the same path cleanly.
+    -   ✅ **(2026-04-10)** Fixed the details-modal local play contract for library-backed TMDB movies — local-first playback lookup now uses the same normalized provider/media identity as library ingest (`tmdbId` for TMDB items) instead of relying on the display media object's transient `id`, which prevents first-click fallthrough into the torrent modal while metadata is still hydrating.
+    -   ✅ **(2026-04-10)** Unified details-modal play routing so secondary `play-media` actions no longer bypass local availability — buttons that previously forced the torrent modal now flow through the same local-first `play(...)` decision path as `Watch Now`, keeping library-backed playback behavior consistent across controls.
+    -   ✅ **(2026-04-10)** Updated the Windows GitHub release workflow to stage `ffprobe.exe` from the same FFmpeg archive as `ffmpeg.exe`, so packaged Windows builds have the explicit probe binary needed by subtitle extraction.
     -   ✅ **(2026-03-21)** Fixed season detection in `LibraryIngest.js` — added regex fallback (`SxxExx`) when the resolver doesn't return an explicit season number, preventing all TV episodes defaulting to season 1.
     -   ✅ **(2026-03-21)** Enhanced `LibrarySearch.svelte` with live poster hydration — unmatched/placeholder items auto-query the provider API (AniList or TMDB) using filename/folder heuristics so search results show real artwork instead of blank cards.
     -   ✅ **(2026-03-21)** Added `computeAllSections(limit)` to `LibraryRepository` — replaces 6 separate `listItems()` calls (6 × O(n) scans) with a single shared scan + version-keyed result cache (O(1) on re-navigation). Cache is invalidated atomically on every `setRaw` write.
     -   ✅ **(2026-03-21)** Added `LibraryLoading.svelte` full-screen overlay — shown immediately on page mount while `computeAllSections` runs in a deferred `setTimeout(0)`, eliminating the ~2 s blank freeze before first paint.
     -   ⚠️ Electron-first delivery: Android-side filesystem integration is still future work.
-    -   ⚠️ Validation is currently limited to targeted unit testing for canonical path generation; broader repo lint/build tooling was unavailable in this workspace.
+    -   ⚠️ Validation is currently limited to targeted unit testing for canonical path generation, subtitle extraction plan generation, and startup state transitions; a fresh live Electron playback check for the new startup overlay and same-session subtitle hydration is still pending.
 -   **Deviations From Original Draft:**
     -   Removed the separate `libraryPath` setting for v1 and anchored the managed library at `torrentPathNew` to reduce migration complexity.
     -   Avoided a transient `libraryManaged` flag by persisting the managed incoming path in torrent cache metadata instead.

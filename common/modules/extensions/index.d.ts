@@ -294,7 +294,14 @@ export interface TorrentResult {
   title: string
 
   /**
-   * Magnet link or torrent URL
+   * Playable torrent identifier
+   * Must be a magnet URI, raw hash, or direct .torrent URL
+   * This is the field the client should use for download/play actions
+   */
+  uri: string
+
+  /**
+   * Source link retained for metadata/reference use
    * Example: 'magnet:?xt=urn:btih:...'
    */
   link: string
