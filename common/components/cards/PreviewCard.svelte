@@ -333,6 +333,7 @@
     will-change: transform, opacity, bottom;
     left: -100%;
     right: -100%;
+    translate: var(--preview-shift-x, 0px) 0px;
   }
   .preview-safe-area {
     margin-top: -1rem !important;

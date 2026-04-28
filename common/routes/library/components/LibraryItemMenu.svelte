@@ -1,5 +1,5 @@
 <script>
-  import { onMount, onDestroy } from 'svelte'
+  import { onDestroy } from 'svelte'
   import { startLibraryManualMatch } from '@/modules/library/manualMatch.js'
   import { EllipsisVertical, Search } from 'lucide-svelte'
 
@@ -8,6 +8,7 @@
 
   let root
   let open = false
+  let globalListenersAttached = false
 
   function canModifyMetadata() {
     return !!(item?.preferredFile?.absolutePath || item?.absolutePath)
@@ -47,15 +48,24 @@
     startLibraryManualMatch(item)
   }
 
-  onMount(() => {
+  function attachGlobalListeners() {
+    if (globalListenersAttached) return
+    globalListenersAttached = true
     document.addEventListener('pointerdown', handleOutside, true)
     document.addEventListener('keydown', handleKeydown, true)
-  })
+  }
 
-  onDestroy(() => {
+  function detachGlobalListeners() {
+    if (!globalListenersAttached) return
+    globalListenersAttached = false
     document.removeEventListener('pointerdown', handleOutside, true)
     document.removeEventListener('keydown', handleKeydown, true)
-  })
+  }
+
+  $: if (open) attachGlobalListeners()
+  else detachGlobalListeners()
+
+  onDestroy(detachGlobalListeners)
 </script>
 
 {#if canModifyMetadata()}

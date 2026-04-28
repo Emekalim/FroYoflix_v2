@@ -159,6 +159,16 @@ function buildMetadataRecordPath(absolutePath, rootPath) {
   return joinPath(rootPath, '.froyo', 'library-metadata', 'by-path', `${makeStableKey(absolutePath)}.json`)
 }
 
+function buildMetadataRelPathRecordPath(relativePath, rootPath) {
+  return joinPath(rootPath, '.froyo', 'library-metadata', 'by-relpath', `${makeStableKey(relativePath)}.json`)
+}
+
+function getMetadataRelativePath(absolutePath, rootPath) {
+  const relative = getRootRelativePath(absolutePath, rootPath)
+  if (relative == null) return null
+  return normalizePath(relative)
+}
+
 function toStoredMetadata(identity) {
   return {
     provider: identity.provider,
@@ -195,9 +205,21 @@ function fromStoredMetadata(stored) {
 async function readStoredMetadata(absolutePath, rootPath) {
   const recordPath = buildMetadataRecordPath(absolutePath, rootPath)
   const raw = await readText(recordPath)
-  if (!raw) return null
+  if (raw) {
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return null
+    }
+  }
+
+  const relativePath = getMetadataRelativePath(absolutePath, rootPath)
+  if (!relativePath) return null
+  const relRecordPath = buildMetadataRelPathRecordPath(relativePath, rootPath)
+  const relRaw = await readText(relRecordPath)
+  if (!relRaw) return null
   try {
-    return JSON.parse(raw)
+    return JSON.parse(relRaw)
   } catch {
     return null
   }
@@ -205,13 +227,19 @@ async function readStoredMetadata(absolutePath, rootPath) {
 
 async function writeStoredMetadata(absolutePath, rootPath, identity) {
   const recordPath = buildMetadataRecordPath(absolutePath, rootPath)
+  const relativePath = getMetadataRelativePath(absolutePath, rootPath)
   const payload = {
     version: 1,
     absolutePath,
+    relativePath,
     ...toStoredMetadata(identity),
     savedAt: Date.now()
   }
   await writeText(recordPath, JSON.stringify(payload, null, 2))
+  if (relativePath) {
+    const relRecordPath = buildMetadataRelPathRecordPath(relativePath, rootPath)
+    await writeText(relRecordPath, JSON.stringify(payload, null, 2))
+  }
   return recordPath
 }
 
@@ -273,18 +301,80 @@ function inferManagedMovieMedia(videoFile) {
   }
 }
 
+function inferManagedSeriesTitle(videoFile, rootPath, bucketName) {
+  const relative = getRootRelativePath(videoFile.path, rootPath)
+  const parts = normalizePath(relative || '').split('/').filter(Boolean)
+  if (parts[0] === bucketName && parts[1]) return parts[1]
+  return stem(videoFile.name)
+}
+
+function inferManagedSeriesMedia(videoFile, rootPath, mediaType) {
+  const bucketName = mediaType === 'tv' ? 'Shows' : 'Anime'
+  const title = inferManagedSeriesTitle(videoFile, rootPath, bucketName) || stem(videoFile.name)
+  const idSource = `${bucketName}:${title}`
+  return {
+    id: `local:${mediaType}:${makeStableKey(idSource)}`,
+    title: {
+      userPreferred: title,
+      romaji: title,
+      english: title,
+      native: title
+    },
+    mediaType,
+    source: 'LOCAL',
+    format: 'TV',
+    type: 'TV',
+    year: null,
+    seasonYear: null,
+    coverImage: null,
+    bannerImage: null,
+    genres: [],
+    tags: [],
+    mediaListEntry: null,
+    relations: { edges: [] },
+    recommendations: { edges: [] },
+    stats: { scoreDistribution: [] },
+    airingSchedule: { nodes: [] },
+    nextAiringEpisode: null
+  }
+}
+
 function inferManagedResolved(videoFile, rootPath) {
   const mediaType = getManagedMediaType(videoFile.path, rootPath)
-  if (mediaType !== 'movie') return null
+  if (!mediaType) return null
 
+  if (mediaType === 'movie') {
+    return {
+      media: inferManagedMovieMedia(videoFile),
+      episode: null,
+      season: null,
+      parseObject: {
+        file_name: basename(videoFile.path),
+        media_title: stem(videoFile.name),
+        anime_title: stem(videoFile.name)
+      },
+      mediaType,
+      provider: 'local',
+      failed: false
+    }
+  }
+
+  const seasonEpisodeMatch = String(videoFile.name || '').match(/[Ss](\d{1,2})[Ee](\d{1,3})/)
+  const season = seasonEpisodeMatch ? parseInt(seasonEpisodeMatch[1], 10) : 1
+  const episode = seasonEpisodeMatch ? parseInt(seasonEpisodeMatch[2], 10) : 1
+  const media = inferManagedSeriesMedia(videoFile, rootPath, mediaType)
+  const title = inferManagedSeriesTitle(videoFile, rootPath, mediaType === 'tv' ? 'Shows' : 'Anime')
   return {
-    media: inferManagedMovieMedia(videoFile),
-    episode: null,
-    season: null,
+    media,
+    episode,
+    season,
     parseObject: {
       file_name: basename(videoFile.path),
-      media_title: stem(videoFile.name),
-      anime_title: stem(videoFile.name)
+      media_title: title,
+      anime_title: title,
+      season_number: season,
+      anime_season: season,
+      episode_number: episode
     },
     mediaType,
     provider: 'local',
@@ -668,6 +758,41 @@ export async function rebuildLibrary() {
     await libraryRepository.setScanState(rootPath, { status: 'error', error: err.message })
     throw err
   }
+}
+
+export async function refreshIncoming({ skipInfoHashes = [] } = {}) {
+  if (!ELECTRON) return { scanned: 0, ingested: 0, imported: 0, unmatched: 0 }
+  const rootPath = getLibraryRoot()
+  if (!rootPath) return { scanned: 0, ingested: 0, imported: 0, unmatched: 0 }
+
+  const incomingRoot = getIncomingRoot(rootPath)
+  if (!(await exists(incomingRoot))) return { scanned: 0, ingested: 0, imported: 0, unmatched: 0 }
+
+  const skip = new Set((skipInfoHashes || []).filter(Boolean))
+  const entries = (await scanPath(incomingRoot, false))
+    .filter(entry => entry.type === 'directory')
+  const targets = entries.filter(entry => !skip.has(basename(entry.path)))
+
+  let imported = 0
+  let unmatched = 0
+  let ingested = 0
+
+  for (const entry of targets) {
+    const infoHash = basename(entry.path)
+    const result = await ingestDirectory({
+      infoHash,
+      incomingPath: entry.path,
+      sourceKind: containsSegment(entry.path, 'manual') ? 'manual' : 'torrent'
+    })
+    if (result.length > 0) ingested++
+    for (const item of result) {
+      const status = item?.statusSummary || item?.status
+      if (status === 'unmatched') unmatched++
+      else imported++
+    }
+  }
+
+  return { scanned: entries.length, ingested, imported, unmatched }
 }
 
 export async function sweepOrphanedFiles() {

@@ -3,16 +3,27 @@
   import { settings } from '@/modules/settings.js'
   import { loadedTorrent, seedingTorrents, stagingTorrents } from '@/modules/torrent.js'
   import { libraryRepository, libraryVersion } from '@/modules/library/LibraryRepository.js'
-  import { rebuildLibrary, sweepOrphanedFiles } from '@/modules/library/LibraryIngest.js'
+  import { rebuildLibrary, refreshIncoming, sweepOrphanedFiles } from '@/modules/library/LibraryIngest.js'
   import LibrarySection from '@/routes/library/components/LibrarySection.svelte'
   import LibraryLoading from '@/routes/library/components/LibraryLoading.svelte'
+  import { modal } from '@/modules/navigation.js'
+  import { debounce } from '@/modules/util.js'
   import { toast } from 'svelte-sonner'
-  import { Clapperboard, RefreshCw } from 'lucide-svelte'
+  import { Clapperboard, RefreshCw, RefreshCcw } from 'lucide-svelte'
 
   let loading = true
   let sections = []
   let librarySections = []
   let incomingSection = { title: 'Incoming Downloads', section: 'incoming', items: [] }
+  let rootEl
+
+  const refreshLibrarySectionsDebounced = debounce(() => {
+    librarySections = libraryRepository.computeAllSections(20)
+  }, 150)
+
+  let sweepTimer
+  let sweeping = false
+  const scheduleSweepInteraction = debounce(() => scheduleOrphanSweep(), 250)
 
   function mapIncomingTorrent(torrent) {
     return {
@@ -51,12 +62,54 @@
     })
   }
 
+  async function refresh() {
+    const skipInfoHashes = new Set()
+    if ($loadedTorrent?.infoHash) skipInfoHashes.add($loadedTorrent.infoHash)
+    for (const torrent of ($stagingTorrents || [])) {
+      if (torrent?.infoHash) skipInfoHashes.add(torrent.infoHash)
+    }
+    for (const torrent of ($seedingTorrents || [])) {
+      if (torrent?.incomplete && torrent?.infoHash) skipInfoHashes.add(torrent.infoHash)
+    }
+
+    toast.promise(
+      refreshIncoming({ skipInfoHashes: Array.from(skipInfoHashes) }),
+      {
+        loading: 'Refreshing incoming downloads...',
+        success: ({ imported = 0, unmatched = 0, ingested = 0 } = {}) => {
+          const parts = []
+          if (ingested) parts.push(`Ingested ${ingested} folder${ingested === 1 ? '' : 's'}`)
+          if (imported) parts.push(`added ${imported} item${imported === 1 ? '' : 's'}`)
+          if (unmatched) parts.push(`${unmatched} unmatched`)
+          return parts.length ? `Refresh complete: ${parts.join(', ')}.` : 'Refresh complete: nothing new found.'
+        },
+        error: (error) => error?.message || 'Refresh failed.',
+      }
+    )
+  }
+
   function runSweep() {
-    sweepOrphanedFiles().catch(error => console.warn('[Library] Orphan sweep failed:', error))
+    if (sweeping) return
+    sweeping = true
+    sweepOrphanedFiles()
+      .catch(error => console.warn('[Library] Orphan sweep failed:', error))
+      .finally(() => {
+        sweeping = false
+      })
+  }
+
+  function scheduleOrphanSweep() {
+    clearTimeout(sweepTimer)
+    sweepTimer = setTimeout(() => {
+      if (document.hidden) return
+      if ($modal?.[modal.MINIMIZE_PROMPT]) return
+      runSweep()
+    }, 15_000)
+    sweepTimer.unref?.()
   }
 
   function onVisibilityChange() {
-    if (!document.hidden) runSweep()
+    if (!document.hidden) scheduleOrphanSweep()
   }
 
   onMount(() => {
@@ -65,16 +118,23 @@
       refreshLibrarySections()
       refreshIncomingSection()
       loading = false
-      runSweep()
+      scheduleOrphanSweep()
     }, 0)
+    rootEl?.addEventListener('scroll', scheduleSweepInteraction, { passive: true })
+    rootEl?.addEventListener('pointerdown', scheduleSweepInteraction, { passive: true })
+    rootEl?.addEventListener('keydown', scheduleSweepInteraction)
   })
 
   onDestroy(() => {
     document.removeEventListener('visibilitychange', onVisibilityChange)
+    clearTimeout(sweepTimer)
+    rootEl?.removeEventListener('scroll', scheduleSweepInteraction)
+    rootEl?.removeEventListener('pointerdown', scheduleSweepInteraction)
+    rootEl?.removeEventListener('keydown', scheduleSweepInteraction)
   })
   $: {
     $libraryVersion
-    if (!loading) refreshLibrarySections()
+    if (!loading) refreshLibrarySectionsDebounced()
   }
   $: {
     $loadedTorrent
@@ -85,7 +145,7 @@
   $: sections = [...librarySections, ...(incomingSection.items.length ? [incomingSection] : [])]
 </script>
 
-<div class='h-full w-full overflow-y-scroll overflow-x-hidden library-root position-relative'>
+<div bind:this={rootEl} class='h-full w-full overflow-y-scroll overflow-x-hidden library-root position-relative'>
 
   {#if loading}
     <LibraryLoading />
@@ -98,9 +158,14 @@
       </div>
       <p class='m-0 text-muted wm-800'>Browse your managed downloads like an offline Home page. Everything here comes from the local library index under <b>{$settings.torrentPathNew}</b>.</p>
     </div>
-    <button type='button' class='btn btn-primary d-flex align-items-center justify-content-center flex-shrink-0 mt-20 mt-md-0' on:click={rebuild}>
-      <RefreshCw size='1.7rem' class='mr-10' />Rebuild Library
-    </button>
+    <div class='d-flex flex-column flex-sm-row gap-10 flex-shrink-0 mt-20 mt-md-0'>
+      <button type='button' class='btn btn-primary d-flex align-items-center justify-content-center' on:click={rebuild}>
+        <RefreshCw size='1.7rem' class='mr-10' />Rebuild Library
+      </button>
+      <button type='button' class='btn btn-secondary d-flex align-items-center justify-content-center' on:click={refresh} title='Ingest completed incoming downloads'>
+        <RefreshCcw size='1.7rem' class='mr-10' />Refresh
+      </button>
+    </div>
   </div>
 
   <div class='d-flex flex-column h-full w-full mt-10 pb-30'>

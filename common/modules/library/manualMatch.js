@@ -55,6 +55,7 @@ export function startLibraryManualMatch(item) {
     search: hints.query,
     year: hints.year,
     format: hints.format,
+    manualMatch: 'library',
     clearNext: true,
     fileEdit: (media) => {
       toast.promise(applyManualMatch(item, media), {

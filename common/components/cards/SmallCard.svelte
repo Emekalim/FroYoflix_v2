@@ -1,5 +1,5 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import PreviewCard from "@/components/cards/PreviewCard.svelte";
   import {
     airingAt,
@@ -60,6 +60,9 @@
   let previewCard;
   let focusTimeout;
   let blurTimeout;
+  const PREVIEW_MARGIN_PX = 8;
+  let clampRaf = null;
+  let clampResizeAttached = false;
   function handleFocus() {
     if (ignoreFocus || preview) return;
     clearTimeouts();
@@ -107,6 +110,39 @@
     clearTimeout(blurTimeout);
   }
 
+  function clampPreviewPosition() {
+    if (!previewCard) return;
+    cancelAnimationFrame(clampRaf);
+    clampRaf = requestAnimationFrame(() => {
+      if (!previewCard) return;
+      const rect = previewCard.getBoundingClientRect();
+      const minLeft = PREVIEW_MARGIN_PX;
+      const maxRight = window.innerWidth - PREVIEW_MARGIN_PX;
+      const overflowLeft = Math.max(0, minLeft - rect.left);
+      const overflowRight = Math.max(0, rect.right - maxRight);
+      const shiftX = overflowLeft - overflowRight;
+      previewCard.style?.setProperty("--preview-shift-x", `${shiftX}px`);
+    });
+  }
+
+  function resetPreviewClamp() {
+    cancelAnimationFrame(clampRaf);
+    clampRaf = null;
+    previewCard?.style?.setProperty("--preview-shift-x", "0px");
+  }
+
+  function attachClampResize() {
+    if (clampResizeAttached) return;
+    clampResizeAttached = true;
+    window.addEventListener("resize", clampPreviewPosition);
+  }
+
+  function detachClampResize() {
+    if (!clampResizeAttached) return;
+    clampResizeAttached = false;
+    window.removeEventListener("resize", clampPreviewPosition);
+  }
+
   let airingInterval;
   let _airingAt = null;
   $: airingInfo = getAiringInfo(_airingAt);
@@ -123,6 +159,8 @@
     }
   });
   onDestroy(() => {
+    detachClampResize();
+    resetPreviewClamp();
     document.removeEventListener("pointerup", handleOutsideClick);
     container?.removeEventListener?.("focusout", handleBlur);
     clearTimeouts();
@@ -137,6 +175,16 @@
   ]);
   $: init(preview);
   $: if (preview) clearTimeout(focusTimeout);
+  $: if (preview) {
+    (async () => {
+      await tick();
+      clampPreviewPosition();
+      attachClampResize();
+    })();
+  } else {
+    detachClampResize();
+    resetPreviewClamp();
+  }
 </script>
 
 <div

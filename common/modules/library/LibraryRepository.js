@@ -29,6 +29,17 @@ function ensureArray(value) {
   return Array.isArray(value) ? value : value ? [value] : []
 }
 
+const LIBRARY_VERSION_DEBOUNCE_MS = 200
+let libraryVersionBumpTimer = null
+function bumpLibraryVersionSoon() {
+  if (libraryVersionBumpTimer) return
+  libraryVersionBumpTimer = setTimeout(() => {
+    libraryVersionBumpTimer = null
+    libraryVersion.set(Date.now())
+  }, LIBRARY_VERSION_DEBOUNCE_MS)
+  libraryVersionBumpTimer.unref?.()
+}
+
 export function normalizeLibraryMedia(media, item = null) {
   if (!media) return null
 
@@ -335,12 +346,13 @@ class LibraryRepository {
   setRaw(key, value) {
     this._sectionCache = { version: null, data: null }
     const result = cache.write(caches.LIBRARY, key, value)
-    libraryVersion.set(Date.now())
+    bumpLibraryVersionSoon()
     return result
   }
 
   deleteRaw(key) {
-    libraryVersion.set(Date.now())
+    this._sectionCache = { version: null, data: null }
+    bumpLibraryVersionSoon()
     return cache.deleteEntry(caches.LIBRARY, key)
   }
 
@@ -778,16 +790,18 @@ class LibraryRepository {
       return this._sectionCache.data
     }
 
+    const baseItems = this.listPrefix(TYPE_PREFIX.item)
+      .map(item => toLibraryItem(this, item))
+      .filter(Boolean)
+
     const unmatched = this.listPrefix(TYPE_PREFIX.file)
       .filter(file => file.status === 'unmatched')
       .map(toUnmatchedItem)
 
-    const allItems = [
-      ...this.listPrefix(TYPE_PREFIX.item).map(item => toLibraryItem(this, item)),
-      ...unmatched
-    ].filter(item => item.preferredFile || item.statusSummary === 'unmatched')
+    const sectionItems = [...baseItems, ...unmatched]
+      .filter(item => item.preferredFile || item.statusSummary === 'unmatched' || item.statusSummary === 'missing')
 
-    const tvEpisodes = allItems.filter(item => item.mediaType === 'tv')
+    const tvEpisodes = baseItems.filter(item => item.mediaType === 'tv')
     let showItems = []
     if (tvEpisodes.length > 0) {
       const groups = new Map()
@@ -800,7 +814,7 @@ class LibraryRepository {
       showItems = Array.from(groups.values()).map(g => toShowItem(this, g)).filter(Boolean)
     }
 
-    const processed = [...showItems, ...allItems.filter(item => item.mediaType !== 'tv')]
+    const processed = [...showItems, ...sectionItems.filter(item => item.mediaType !== 'tv')]
     processed.sort((a, b) =>
       Number(b.preferredFile?.importedAt || b.updatedAt || 0) -
       Number(a.preferredFile?.importedAt || a.updatedAt || 0)
