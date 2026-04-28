@@ -210,7 +210,7 @@
       if (gainNode?.gain) gainNode.gain.value = volume;
       gain = 0;
     }
-    if ("audioTracks" in HTMLVideoElement.prototype) {
+    if (!hls && "audioTracks" in HTMLVideoElement.prototype) {
       if (!video.audioTracks.length) {
         toast.error("Audio Codec Unsupported", {
           description:
@@ -399,6 +399,35 @@
   $: loadDeband($settings.playerDeband, video);
 
   let hls;
+  let hlsAudioTracks = [];
+  let hlsAudioTrackIndex = -1;
+
+  function updateHlsAudioTracks() {
+    if (!hls) {
+      hlsAudioTracks = [];
+      hlsAudioTrackIndex = -1;
+      return;
+    }
+    hlsAudioTracks = Array.isArray(hls.audioTracks) ? [...hls.audioTracks] : [];
+    hlsAudioTrackIndex =
+      typeof hls.audioTrack === "number" ? hls.audioTrack : hlsAudioTrackIndex;
+  }
+
+  function selectPreferredHlsAudioTrack() {
+    if (!hls || !hlsAudioTracks?.length) return;
+    const preferredLang = $settings.audioLanguage;
+    const langOf = (track) => track?.lang || track?.language || "";
+
+    let idx = hlsAudioTracks.findIndex((track) => langOf(track) === preferredLang);
+    if (idx < 0) idx = hlsAudioTracks.findIndex((track) => langOf(track) === "jpn");
+    if (idx < 0) idx = hlsAudioTracks.findIndex((track) => track?.default === true);
+    if (idx < 0) idx = 0;
+
+    if (Number.isFinite(idx) && idx !== hls.audioTrack) {
+      hls.audioTrack = idx;
+      hlsAudioTrackIndex = idx;
+    }
+  }
   let externalReadyListener;
   let transcoderPort = null;
   async function handleCurrent(file) {
@@ -454,6 +483,8 @@
         if (hls) {
           hls.destroy();
           hls = null;
+          hlsAudioTracks = [];
+          hlsAudioTrackIndex = -1;
         }
         // Force clear video src to stop previous playback/loading
         src = "";
@@ -523,7 +554,15 @@
               nudgeMaxRetry: 10,
               fragLoadingMaxRetry: 10,
               manifestLoadingMaxRetry: 10,
+              audioPreference: { lang: $settings.audioLanguage },
             });
+
+            hlsAudioTracks = [];
+            hlsAudioTrackIndex = -1;
+            const syncAudioTracks = () => {
+              updateHlsAudioTracks();
+              selectPreferredHlsAudioTrack();
+            };
 
             hls.loadSource(hlsUrl);
             hls.attachMedia(video);
@@ -554,6 +593,13 @@
         toast.error("HLS playback failed");
                 }
               }
+            });
+
+            hls.on(Hls.Events.MANIFEST_PARSED, syncAudioTracks);
+            hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, syncAudioTracks);
+            hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (event, data) => {
+              const idx = Number(data?.id);
+              hlsAudioTrackIndex = Number.isFinite(idx) ? idx : hls.audioTrack;
             });
 
             hls.on(Hls.Events.BUFFER_STALLED, (event, data) => {
@@ -598,6 +644,8 @@
         if (hls) {
           hls.destroy();
           hls = null;
+          hlsAudioTracks = [];
+          hlsAudioTrackIndex = -1;
         }
         src = "";
         video.removeAttribute("src");
@@ -644,6 +692,8 @@
     if (hls) {
       hls.destroy();
       hls = null;
+      hlsAudioTracks = [];
+      hlsAudioTrackIndex = -1;
     }
 
     // Re-init with new quality
@@ -666,6 +716,19 @@
           maxMaxBufferLength: 60,
           enableWorker: true,
           lowLatencyMode: false,
+          audioPreference: { lang: $settings.audioLanguage },
+        });
+
+        hlsAudioTracks = [];
+        hlsAudioTrackIndex = -1;
+        const syncAudioTracks = () => {
+          updateHlsAudioTracks();
+          selectPreferredHlsAudioTrack();
+        };
+        hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, syncAudioTracks);
+        hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (event, data) => {
+          const idx = Number(data?.id);
+          hlsAudioTrackIndex = Number.isFinite(idx) ? idx : hls.audioTrack;
         });
 
         hls.loadSource(hlsUrl);
@@ -1189,6 +1252,14 @@
     seek(-settings.value.playerSeek);
   }
   function selectAudio(id) {
+    if (hls && hlsAudioTracks?.length) {
+      const idx = Number(id);
+      if (Number.isFinite(idx) && idx >= 0 && idx < hlsAudioTracks.length) {
+        hls.audioTrack = idx;
+        hlsAudioTrackIndex = idx;
+      }
+      return;
+    }
     if (id != null) {
       for (const track of video.audioTracks) {
         track.enabled = track.id === id;
@@ -3250,7 +3321,8 @@
           <Eye size="2.5rem" strokeWidth={2.5} />
         </span>
       {/if}
-      {#if "audioTracks" in HTMLVideoElement.prototype && video?.audioTracks?.length > 1}
+      {#if (hlsAudioTracks?.length || 0) > 1 ||
+        ("audioTracks" in HTMLVideoElement.prototype && video?.audioTracks?.length > 1)}
         <div class="dropdown dropup with-arrow" use:click={toggleDropdown}>
           <span
             class="icon text-white ctrl mr-5 d-flex align-items-center h-full"
@@ -3262,29 +3334,48 @@
             class="dropdown-menu dropdown-menu-right ctrl p-10 pb-0 mr-15 text-capitalize text-nowrap"
           >
             <div class="custom-radio overflow-y-auto overflow-x-hidden hm-400">
-              {#each video.audioTracks as track}
-                <input
-                  name="audio-radio-set"
-                  type="radio"
-                  id="audio-{track.id}-radio"
-                  value={track.id}
-                  checked={track.enabled}
-                />
-                <label
-                  for="audio-{track.id}-radio"
-                  use:click={() => selectAudio(track.id)}
-                  class="pb-5"
-                >
-                  {(track.language ||
-                    (!Object.values(video.audioTracks).some(
-                      (track) =>
-                        track.language === "eng" || track.language === "en",
-                    )
-                      ? "eng"
-                      : track.label)) +
-                    (track.label ? " - " + track.label : "")}
-                </label>
-              {/each}
+              {#if (hlsAudioTracks?.length || 0) > 1}
+                {#each hlsAudioTracks as track, i}
+                  <input
+                    name="audio-radio-set"
+                    type="radio"
+                    id="hls-audio-{i}-radio"
+                    value={i}
+                    checked={i === hlsAudioTrackIndex}
+                  />
+                  <label
+                    for="hls-audio-{i}-radio"
+                    use:click={() => selectAudio(i)}
+                    class="pb-5"
+                  >
+                    {track?.name || track?.lang || track?.language || `Track ${i + 1}`}
+                  </label>
+                {/each}
+              {:else}
+                {#each video.audioTracks as track}
+                  <input
+                    name="audio-radio-set"
+                    type="radio"
+                    id="audio-{track.id}-radio"
+                    value={track.id}
+                    checked={track.enabled}
+                  />
+                  <label
+                    for="audio-{track.id}-radio"
+                    use:click={() => selectAudio(track.id)}
+                    class="pb-5"
+                  >
+                    {(track.language ||
+                      (!Object.values(video.audioTracks).some(
+                        (track) =>
+                          track.language === "eng" || track.language === "en",
+                      )
+                        ? "eng"
+                        : track.label)) +
+                      (track.label ? " - " + track.label : "")}
+                  </label>
+                {/each}
+              {/if}
               <div class="mb-5 invisible"></div>
             </div>
           </div>

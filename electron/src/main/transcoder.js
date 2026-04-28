@@ -1,12 +1,13 @@
 import http from 'http'
 import { createHash } from 'crypto'
-import { statSync, existsSync, createReadStream } from 'fs'
+import { statSync, existsSync, createReadStream, writeFileSync } from 'fs'
 import { mkdir, rm, stat } from 'fs/promises'
 import { join, basename, dirname } from 'path'
 import { app } from 'electron'
 import { spawn } from 'child_process'
 import ffmpeg from 'fluent-ffmpeg'
 import getPort from 'get-port'
+import { buildHlsMasterPlaylist } from './hls-master-playlist.js'
 import {
     buildSubtitleExtractionPlan
 } from './subtitle-extraction.js'
@@ -16,10 +17,12 @@ const ffmpegBinaryPath = app.isPackaged
     ? join(process.resourcesPath, 'bin', 'ffmpeg')
     : require('ffmpeg-static')
 const ffprobeBinaryPath = app.isPackaged
-    ? (existsSync(join(process.resourcesPath, 'bin', 'ffprobe'))
-        ? join(process.resourcesPath, 'bin', 'ffprobe')
-        : require('ffprobe-static').path)
+    ? join(process.resourcesPath, 'bin', 'ffprobe')
     : require('ffprobe-static').path
+
+if (app.isPackaged && !existsSync(ffprobeBinaryPath)) {
+    throw new Error(`[Transcoder] Missing bundled FFprobe binary at: ${ffprobeBinaryPath}`)
+}
 
 console.log('[Transcoder] FFmpeg binary path:', ffmpegBinaryPath)
 ffmpeg.setFfmpegPath(ffmpegBinaryPath)
@@ -36,8 +39,8 @@ export class Transcoder {
         this.port = null
         this.tempDir = join(app.getPath('temp'), 'froyo-transcode')
         this.repairDir = join(app.getPath('temp'), 'froyo-repair') // Persistent repair storage
-        this.activeTranscodes = new Map() // hash -> ffmpeg command
-        this.intentionalStops = new Set() // hash -> boolean (true if stopped explicitly)
+        this.activeTranscodes = new Map() // hash -> Set<ffmpeg command>
+        this.intentionalStops = new Set() // hash (true if stopped explicitly)
 
         // Platform-specific encoder selection — verified async after init
         this.encoder = this.detectEncoder()
@@ -79,6 +82,26 @@ export class Transcoder {
     async ensureTempDir() {
         await mkdir(this.tempDir, { recursive: true })
         await mkdir(this.repairDir, { recursive: true })
+    }
+
+    addActiveTranscode(hash, command) {
+        if (!hash || !command) return
+        let commands = this.activeTranscodes.get(hash)
+        if (!commands) {
+            commands = new Set()
+            this.activeTranscodes.set(hash, commands)
+        }
+        commands.add(command)
+    }
+
+    removeActiveTranscode(hash, command) {
+        const commands = this.activeTranscodes.get(hash)
+        if (!commands) return
+        commands.delete(command)
+        if (commands.size === 0) {
+            this.activeTranscodes.delete(hash)
+            this.intentionalStops.delete(hash)
+        }
     }
 
     async probe(filePath) {
@@ -335,7 +358,7 @@ export class Transcoder {
                 res.writeHead(200, { 'Content-Type': 'application/json' })
                 res.end(JSON.stringify({
                     // CRITICAL: Include file path in playlist URL for stateless design
-                    url: `http://localhost:${this.port}/hls/${hash}/playlist.m3u8?file=${encodeURIComponent(filePath)}`,
+                    url: `http://localhost:${this.port}/hls/${hash}/master.m3u8?file=${encodeURIComponent(filePath)}`,
                     hash,
                     status
                 }))
@@ -348,14 +371,15 @@ export class Transcoder {
                 const hash = url.searchParams.get('hash')
                 if (hash && this.activeTranscodes.has(hash)) {
                     console.log(`[Transcoder] Stopping transcoding for hash: ${hash}`)
-                    const command = this.activeTranscodes.get(hash)
+                    const commands = this.activeTranscodes.get(hash)
                     try {
                         this.intentionalStops.add(hash) // Mark as intentional stop
-                        command.kill('SIGKILL') // Force kill for immediate stop
+                        for (const command of commands) {
+                            command.kill('SIGKILL') // Force kill for immediate stop
+                        }
                     } catch (e) {
                         console.error(`[Transcoder] Failed to kill process ${hash}:`, e)
                     }
-                    this.activeTranscodes.delete(hash)
                     res.writeHead(200)
                     res.end('Stopped')
                 } else {
@@ -386,32 +410,24 @@ export class Transcoder {
                 const cacheDir = join(this.tempDir, hash)
                 const filePath = join(cacheDir, filename)
 
-                // If playlist requested, ensure transcoding is started
-                if (filename === 'playlist.m3u8') {
+                const isPlaylistRequest = filename.endsWith('.m3u8')
+                if (isPlaylistRequest) {
                     if (!existsSync(filePath)) {
-                        // Get original file from query param (stateless design)
                         const originalFile = url.searchParams.get('file')
                         if (!originalFile) {
                             res.writeHead(400)
                             res.end('Missing file source')
                             return
                         }
-
-                        // Start transcoding
                         await this.startTranscoding(originalFile, hash)
                     } else if (existsSync(filePath) && !this.activeTranscodes.has(hash)) {
-                        // Resumption Logic:
-                        // Playlist exists, but no process is running.
-                        // We need to check if the transcode was actually *completed* (has #EXT-X-ENDLIST)
-                        // or if it was *interrupted* (killed by user/stop/crash).
-
+                        const statusPlaylistPath = join(cacheDir, 'playlist.m3u8')
                         const { readFileSync } = await import('fs')
                         try {
-                            // Read the last few lines of the playlist to check for end tag
-                            const content = readFileSync(filePath, 'utf8')
+                            const probePath = existsSync(statusPlaylistPath) ? statusPlaylistPath : filePath
+                            const content = readFileSync(probePath, 'utf8')
                             if (!content.includes('#EXT-X-ENDLIST')) {
                                 console.log('[Transcoder] Found incomplete playlist with no active process. Restarting:', hash)
-                                // Get original file from query param
                                 const originalFile = url.searchParams.get('file')
                                 if (originalFile) {
                                     await this.startTranscoding(originalFile, hash)
@@ -422,7 +438,7 @@ export class Transcoder {
                         }
                     }
 
-                    // Wait for playlist to be created (max 60s for 4K files)
+                    // Wait for playlist/master to be created (max 60s for 4K files)
                     let attempts = 0
                     while (!existsSync(filePath) && attempts < 120) {
                         await new Promise(r => setTimeout(r, 500))
@@ -573,6 +589,57 @@ export class Transcoder {
 
         console.log(`[Transcoder] Starting HLS for ${inputPath} -> ${cacheDir} ${useRepaired ? '(Using Repaired Source)' : ''}`)
 
+        let metadata = null
+        try {
+            metadata = await this.probe(inputPath)
+        } catch (e) {
+            console.error('[Transcoder] ffprobe failed:', e)
+        }
+
+        const audioStreams = (metadata?.streams || []).filter((s) => s?.codec_type === 'audio')
+        const hasMultiAudio = audioStreams.length > 1
+
+        const encodedSource = encodeURIComponent(filePath)
+        const videoUri = `playlist.m3u8?file=${encodedSource}`
+        const audioRenditions = hasMultiAudio
+            ? audioStreams.map((stream, idx) => {
+                const language = stream?.tags?.language || null
+                const nameParts = []
+                if (language) nameParts.push(language)
+                const title = stream?.tags?.title || stream?.tags?.handler_name
+                if (title) nameParts.push(title)
+                const name = nameParts.join(' - ') || `Track ${idx + 1}`
+                return {
+                    uri: `audio_${idx}.m3u8?file=${encodedSource}`,
+                    name,
+                    language,
+                    isDefault: Boolean(stream?.disposition?.default)
+                }
+            })
+            : []
+
+        try {
+            writeFileSync(
+                join(cacheDir, 'master.m3u8'),
+                buildHlsMasterPlaylist({ videoUri, audioRenditions }),
+                'utf8'
+            )
+        } catch (e) {
+            console.error('[Transcoder] Failed to write master.m3u8:', e)
+        }
+
+        if (hasMultiAudio) {
+            return this.startMultiAudioTranscoding({
+                filePath,
+                hash,
+                cacheDir,
+                inputPath,
+                audioStreams,
+                isRetry,
+                useRepaired
+            })
+        }
+
         return new Promise((resolve, reject) => {
             // Build FFmpeg command with platform-specific encoder
             const outputOptions = [
@@ -632,7 +699,7 @@ export class Transcoder {
                 .output(join(cacheDir, 'playlist.m3u8'))
                 .on('start', (cmd) => {
                     console.log(`[Transcoder] Spawned: ${cmd}`)
-                    this.activeTranscodes.set(hash, command)
+                    this.addActiveTranscode(hash, command)
                     resolve()
                 })
                 .on('stderr', (stderrLine) => {
@@ -650,7 +717,7 @@ export class Transcoder {
                 })
                 .on('error', async (err) => {
                     console.error(`[Transcoder] Error: ${err.message}`)
-                    this.activeTranscodes.delete(hash)
+                    this.removeActiveTranscode(hash, command)
 
                     // Smart Fallback Logic
                     // Trigger on critical decoder errors, unexpected crashes, or manual kill (SIGKILL)
@@ -658,7 +725,6 @@ export class Transcoder {
                     // Do NOT trigger if the stop was intentional (user request/app exit)
                     if (this.intentionalStops.has(hash)) {
                         console.log(`[Transcoder] Ignoring expected SIGKILL for ${hash}`)
-                        this.intentionalStops.delete(hash)
                         return
                     }
 
@@ -680,10 +746,156 @@ export class Transcoder {
                 })
                 .on('end', () => {
                     console.log(`[Transcoder] Finished: ${hash}`)
-                    this.activeTranscodes.delete(hash)
+                    this.removeActiveTranscode(hash, command)
                 })
 
             command.run()
+        })
+    }
+
+    startMultiAudioTranscoding({ filePath, hash, cacheDir, inputPath, audioStreams, isRetry, useRepaired }) {
+        const createdCommands = []
+
+        const killAll = () => {
+            this.intentionalStops.add(hash)
+            for (const cmd of createdCommands) {
+                try {
+                    cmd.kill('SIGKILL')
+                } catch {}
+            }
+        }
+
+        const baseHlsOptions = (segmentPattern) => ([
+            '-hls_time 6',
+            '-hls_list_size 0',
+            '-hls_flags independent_segments+split_by_time',
+            '-hls_segment_filename', segmentPattern,
+            '-start_number 0',
+            '-sn'
+        ])
+
+        const makeVideoCommand = (resolve) => {
+            const outputOptions = [
+                '-map 0:v:0',
+                '-an',
+                '-dn',
+                `-c:v ${this.encoder}`,
+                '-b:v 10M',
+                '-maxrate 12M',
+                '-bufsize 24M',
+                '-force_key_frames', 'expr:gte(t,n_forced*6)',
+                '-sc_threshold', '0',
+                '-fflags', '+genpts',
+                '-vsync', '0',
+                ...baseHlsOptions(join(cacheDir, 'segment_%03d.ts'))
+            ]
+
+            if (this.encoder === 'libx264') {
+                outputOptions.splice(outputOptions.indexOf(`-c:v ${this.encoder}`), 0, '-preset ultrafast')
+            }
+            if (this.encoder !== 'libx264') {
+                outputOptions.push('-allow_sw 1')
+            }
+
+            const command = ffmpeg(inputPath)
+                .inputOptions(this.encoder !== 'libx264' && !useRepaired ? ['-hwaccel auto'] : [])
+                .outputOptions(outputOptions)
+                .output(join(cacheDir, 'playlist.m3u8'))
+                .on('start', (cmd) => {
+                    console.log(`[Transcoder] Spawned (video): ${cmd}`)
+                    this.addActiveTranscode(hash, command)
+                    resolve()
+                })
+                .on('stderr', (stderrLine) => {
+                    if (stderrLine.includes('Error') || stderrLine.includes('Opening')) {
+                        console.log(`[FFmpeg:video] ${stderrLine}`)
+                    }
+                    if (!isRetry && !useRepaired && stderrLine.includes('Error submitting packet to decoder')) {
+                        console.error('[Transcoder] Detected fatal decoder error (video). Killing process to force fallback...')
+                        command.kill('SIGKILL')
+                    }
+                })
+                .on('error', async (err) => {
+                    console.error(`[Transcoder] Error (video): ${err.message}`)
+                    this.removeActiveTranscode(hash, command)
+
+                    if (this.intentionalStops.has(hash)) {
+                        console.log(`[Transcoder] Ignoring expected SIGKILL for ${hash}`)
+                        return
+                    }
+
+                    // Kill other processes and attempt repair fallback for the source file.
+                    killAll()
+
+                    if (!isRetry && !useRepaired && (
+                        err.message.includes('decoder') ||
+                        err.message.includes('Invalid data') ||
+                        err.message.includes('sigkill') ||
+                        err.message.includes('SIGKILL')
+                    )) {
+                        console.log('[Transcoder] Critical failure detected. Initiating Smart Fallback repair...')
+                        try {
+                            await this.repairFile(filePath, hash)
+                            await this.startTranscoding(filePath, hash, true)
+                        } catch (repairErr) {
+                            console.error('[Transcoder] Repair failed:', repairErr)
+                        }
+                    }
+                })
+                .on('end', () => {
+                    console.log(`[Transcoder] Finished (video): ${hash}`)
+                    this.removeActiveTranscode(hash, command)
+                })
+
+            createdCommands.push(command)
+            command.run()
+        }
+
+        const makeAudioCommand = (stream, idx) => {
+            const outputOptions = [
+                `-map 0:${stream.index}`,
+                '-vn',
+                '-dn',
+                '-c:a aac',
+                '-b:a 128k',
+                '-ac 2',
+                '-ar 48000',
+                ...baseHlsOptions(join(cacheDir, `audio_${idx}_%03d.ts`))
+            ]
+
+            const command = ffmpeg(inputPath)
+                .inputOptions(this.encoder !== 'libx264' && !useRepaired ? ['-hwaccel auto'] : [])
+                .outputOptions(outputOptions)
+                .output(join(cacheDir, `audio_${idx}.m3u8`))
+                .on('start', (cmd) => {
+                    console.log(`[Transcoder] Spawned (audio ${idx}): ${cmd}`)
+                    this.addActiveTranscode(hash, command)
+                })
+                .on('stderr', (stderrLine) => {
+                    if (stderrLine.includes('Error') || stderrLine.includes('Opening')) {
+                        console.log(`[FFmpeg:audio ${idx}] ${stderrLine}`)
+                    }
+                })
+                .on('error', (err) => {
+                    console.error(`[Transcoder] Error (audio ${idx}): ${err.message}`)
+                    this.removeActiveTranscode(hash, command)
+                    if (this.intentionalStops.has(hash)) return
+                    killAll()
+                })
+                .on('end', () => {
+                    console.log(`[Transcoder] Finished (audio ${idx}): ${hash}`)
+                    this.removeActiveTranscode(hash, command)
+                })
+
+            createdCommands.push(command)
+            command.run()
+        }
+
+        return new Promise((resolve) => {
+            makeVideoCommand(resolve)
+            for (let idx = 0; idx < audioStreams.length; idx += 1) {
+                makeAudioCommand(audioStreams[idx], idx)
+            }
         })
     }
 
@@ -697,10 +909,12 @@ export class Transcoder {
         }
 
         // Kill all active ffmpeg processes
-        for (const [hash, command] of this.activeTranscodes) {
+        for (const [hash, commands] of this.activeTranscodes) {
             try {
                 this.intentionalStops.add(hash) // Mark as intentional
-                command.kill('SIGKILL') // Force kill on app exit
+                for (const command of commands) {
+                    command.kill('SIGKILL') // Force kill on app exit
+                }
             } catch (e) {
                 console.error(`[Transcoder] Failed to kill process ${hash}:`, e)
             }
