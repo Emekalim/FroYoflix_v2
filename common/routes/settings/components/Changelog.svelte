@@ -1,6 +1,7 @@
 <script context='module'>
   import { SUPPORTS } from '@/modules/support.js'
   import { IPC } from '@/modules/bridge.js'
+  import { updaterState } from '@/modules/updater.js'
   import Debug from 'debug'
 
   const debug = Debug('ui:changelog-view')
@@ -9,12 +10,21 @@
 
   const startedAt = Date.now()
   window.addEventListener('online', () => changeLog = getChanges())
-  IPC.on(SUPPORTS.isAndroid ? 'update-available' : 'update-downloaded', (version) => {
-    if (latestVersion !== version) {
-      latestVersion = version
-      if ((Date.now() - startedAt) >= 30_000) changeLog = getChanges()
-    }
-  })
+  if (SUPPORTS.isAndroid) {
+    IPC.on('update-available', (version) => {
+      if (latestVersion !== version) {
+        latestVersion = version
+        if ((Date.now() - startedAt) >= 30_000) changeLog = getChanges()
+      }
+    })
+  } else {
+    updaterState.subscribe((state) => {
+      if (state.targetVersion && latestVersion !== state.targetVersion) {
+        latestVersion = state.targetVersion
+        if ((Date.now() - startedAt) >= 30_000) changeLog = getChanges()
+      }
+    })
+  }
 
   async function getChanges() {
     try {
@@ -39,7 +49,10 @@
   export let body = ''
 
   export function sanitize(body) {
-    return DOMPurify.sanitize(marked.parse(body.trim(), {
+    const cleanBody = (body || '').trim()
+    if (!cleanBody) return '<p>No release notes were published for this version.</p>'
+
+    return DOMPurify.sanitize(marked.parse(cleanBody, {
       pedantic: false,
       breaks: true,
       gfm: true

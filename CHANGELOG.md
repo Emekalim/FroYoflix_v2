@@ -3,6 +3,25 @@
 All notable changes to FroYo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [1.0.2] - 2026-06-06
+
+### Added
+
+- Managed Library browsing for your locally available titles, with faster offline access to movies and shows you already have.
+- Better local subtitle handling on desktop, including extraction of embedded text subtitles from supported media files.
+
+### Improved
+
+- Faster local playback startup, with a clearer loading experience while FroYo prepares a stream.
+- More reliable desktop update flow, including a redesigned update dialog with clearer status states and actions.
+- Better library matching and playback routing for locally managed content.
+
+### Fixed
+
+- Fixed multiple local-play glitches that could open the torrent flow instead of starting available library content.
+- Fixed season detection and metadata matching issues that made some library items appear incorrectly.
+- Fixed several updater and release issues that could make desktop updates fail or show incomplete release notes.
+
 ## [1.0.0] - 2026-02-20
 
 ### Added

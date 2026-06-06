@@ -35,6 +35,14 @@ contextBridge.exposeInMainWorld('electron', {
   getTranscoderPort: () => ipcRenderer.invoke('get-transcoder-port')
 })
 
+contextBridge.exposeInMainWorld('updater', {
+  getState: () => ipcRenderer.invoke('updater:get-state'),
+  checkForUpdates: (options) => ipcRenderer.invoke('updater:check-for-updates', options),
+  downloadUpdate: () => ipcRenderer.invoke('updater:download-update'),
+  installUpdate: () => ipcRenderer.invoke('updater:install-update'),
+  dismiss: (options) => ipcRenderer.invoke('updater:dismiss', options)
+})
+
 let _ports
 ipcRenderer.once('port', ({ ports }) => {
   _ports = ports

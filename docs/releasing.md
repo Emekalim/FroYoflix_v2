@@ -2,12 +2,12 @@
 
 ## How to cut a release
 
-Releases are triggered by pushing a version tag. CI builds Electron (Windows/Linux/macOS) and Android automatically.
+Releases are triggered by pushing a version tag. CI builds Electron for Windows and macOS automatically, along with the Android release pipeline.
 
 ### Steps
 
 1. **Bump versions** in both `electron/package.json` and `capacitor/package.json`
-2. **Update `CHANGELOG.md`** — change `[Unreleased]` to `[vX.Y.Z] - YYYY-MM-DD`
+2. **Update `CHANGELOG.md`** — add a new `## [X.Y.Z] - YYYY-MM-DD` entry with the customer-facing notes you want shown in FroYo's update dialog
 3. **Commit and push** to `stable_base`
 
 ```bash
@@ -24,6 +24,8 @@ git push origin vX.Y.Z
 ```
 
 CI fires automatically. Monitor at: https://github.com/Emekalim/FroYoflix_v2/actions
+
+After the Windows and macOS publish jobs finish, CI copies the matching `CHANGELOG.md` section into the GitHub Release body. FroYo's in-app update dialog reads those GitHub release notes directly.
 
 ---
 
@@ -44,11 +46,10 @@ Keep both in sync — they should always have the same version number.
 |----------|----------|
 | `windows-FroYo-vX.Y.Z.exe` | Windows installer |
 | `windows-FroYo-vX.Y.Z-portable.exe` | Windows portable |
-| `linux-FroYo-vX.Y.Z.AppImage` | Linux |
-| `linux-FroYo-vX.Y.Z.deb` | Debian/Ubuntu |
-| `mac-FroYo-vX.Y.Z.dmg` | macOS |
+| `mac-FroYo-vX.Y.Z.zip` | macOS universal build |
 | `android-FroYo-vX.Y.Z.apk` | Android (signed) |
-| `latest.yml` | Electron auto-updater manifest |
+| `latest.yml` | Windows Electron auto-updater manifest |
+| `latest-mac.yml` | macOS Electron auto-updater manifest |
 | `latest-android.yml` | Android auto-updater manifest |
 
 ---

@@ -20,6 +20,26 @@ declare global {
       arch: string
       session: string
     }
+    updater: {
+      getState: () => Promise<{
+        phase: string
+        currentVersion: string
+        targetVersion: string
+        downloadProgress: number
+        releaseNotesUrl: string
+        releaseDate: string
+        channel: string
+        dismissedVersion: string
+        error: { message: string, stage: string, manual: boolean } | null
+        manualCheckInFlight: boolean
+        canDownload: boolean
+        canInstall: boolean
+      } | null>
+      checkForUpdates: (options?: { manual?: boolean }) => Promise<boolean>
+      downloadUpdate: () => Promise<boolean>
+      installUpdate: () => Promise<boolean>
+      dismiss: (options: { kind: 'skip-version' | 'remind-later' }) => Promise<boolean>
+    }
   }
   interface EventTarget {
     on: (type: string, callback: (any) => void, options?: boolean | {}) => void

@@ -17,3 +17,10 @@ export const IPC = window.IPC
 export const VERSION = window.version
 export const ANDROID = window.android || androidDefaults
 export const ELECTRON = window.electron || electronDefaults
+export const UPDATER = window.updater || {
+  getState: async () => null,
+  checkForUpdates: noopAsyncBool,
+  downloadUpdate: noopAsyncBool,
+  installUpdate: noopAsyncBool,
+  dismiss: noopAsyncBool
+}

@@ -25,7 +25,7 @@ export default class Protocol {
     w2g: link => this.window.webContents.send('w2glink', link),
     schedule: () => this.window.webContents.send('schedule'),
     donate: () => shell.openExternal('https://github.com/sponsors/Emekalim/'),
-    update: () => ipcMain.emit('quit-and-install'),
+    update: () => ipcMain.emit('window-show'),
     changelog: () => shell.openExternal('https://github.com/Emekalim/FroYoflix_v2/releases/latest'),
     show: () => ipcMain.emit('window-show')
   }

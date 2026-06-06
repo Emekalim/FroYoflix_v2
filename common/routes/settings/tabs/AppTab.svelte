@@ -48,7 +48,15 @@
   import { persisted } from 'svelte-persisted-store'
   import { capitalize, defaults } from '@/modules/util.js'
   import { onDestroy } from 'svelte'
-  import { updateState } from '@/modals/UpdateModal.svelte'
+  import {
+    checkForUpdates,
+    dismissUpdate,
+    downloadUpdate,
+    getUpdaterPrimaryAction,
+    getUpdaterStatusMessage,
+    installUpdate,
+    updaterState
+  } from '@/modules/updater.js'
   import { platformMap } from '@/routes/settings/SettingsPage.svelte'
   import SettingCard from '@/routes/settings/components/SettingCard.svelte'
   import ChangelogTab from '@/routes/settings/tabs/ChangelogTab.svelte'
@@ -122,6 +130,20 @@
   }
 
   IPC.on('device-info', writeAppInfo)
+
+  async function handleUpdaterAction(action) {
+    switch (action) {
+      case 'check':
+        await checkForUpdates(true)
+        break
+      case 'download':
+        await downloadUpdate()
+        break
+      case 'install':
+        await installUpdate()
+        break
+    }
+  }
 </script>
 
 <h4 class='mb-10 font-weight-bold'>Integrations</h4>
@@ -172,11 +194,50 @@
 <SettingCard title='About This App' description="Restart may be required for some settings to take effect. If you don't know what settings do what, use defaults." class='d-lg-none'>
   <div class='d-flex flex-column'>
     <span class='text-nowrap'>{version ? `v${version}` : ``} {platformMap[VERSION.platform] || 'dev'} {VERSION.arch || 'dev'} {capitalize(VERSION.session) || ''}</span>
-    <button type='button' use:click={() => { toast('Update is downloading...', { description: 'This may take a moment, the update will be ready shortly.' }) }} class='btn btn-primary mt-5 d-none align-items-center justify-content-center' style='background-color: var(--tertiary-color-light);' class:d-flex={$updateState === 'downloading'}><span class='text-truncate'>Update Downloading...</span></button>
-    <button type='button' use:click={() => { $updateState = 'ready' }} class='btn btn-primary mt-5 d-none align-items-center justify-content-center bg-success-light' class:d-flex={$updateState === 'ready' || $updateState === 'ignored' || $updateState === 'aborted'}><span class='text-truncate'>Update Available!</span></button>
   </div>
 </SettingCard>
 {#if !SUPPORTS.isAndroid}
+  <SettingCard title='App Updates' description='Check for new desktop releases, download an available update, or install a downloaded update.'>
+    {@const action = getUpdaterPrimaryAction($updaterState)}
+    <div class='d-flex flex-column'>
+      <span class='text-nowrap'>{version ? `Current version: v${version}` : ``}</span>
+      <span class='text-muted mt-5'>{getUpdaterStatusMessage($updaterState)}</span>
+      <div class='d-flex flex-column flex-md-row mt-10'>
+        <button
+          type='button'
+          use:click={() => handleUpdaterAction(action.action)}
+          class='btn btn-primary d-flex align-items-center justify-content-center'
+          disabled={action.disabled || !action.action}
+        >
+          <span class='text-truncate'>{action.label}</span>
+        </button>
+        <button
+          type='button'
+          use:click={() => IPC.emit('open', $updaterState.releaseNotesUrl || 'https://github.com/Emekalim/FroYoflix_v2/releases/latest')}
+          class='btn btn-link text-left text-md-center mt-5 mt-md-0 ml-md-10'
+        >
+          View Release Notes
+        </button>
+      </div>
+      <div class='d-flex flex-column flex-md-row' class:d-none={$updaterState.phase !== 'available' && $updaterState.phase !== 'downloaded'}>
+        <button
+          type='button'
+          use:click={() => dismissUpdate('remind-later')}
+          class='btn btn-link text-left px-0 mt-5'
+        >
+          Remind Me Later
+        </button>
+        <button
+          type='button'
+          use:click={() => dismissUpdate('skip-version')}
+          class='btn btn-link text-danger text-left px-0 mt-5 ml-md-10'
+          class:d-none={$updaterState.phase !== 'available'}
+        >
+          Skip This Version
+        </button>
+      </div>
+    </div>
+  </SettingCard>
   <SettingCard title='Exit Action' description='Choose the functionality of the close button for the app. You can choose to receive a Prompt to Minimize or Exit, default to Minimize, or default to Exiting the app.'>
     <div>
       <select class='form-control bg-dark mw-150 w-150 text-truncate' bind:value={settings.closeAction}>

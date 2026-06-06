@@ -1,6 +1,6 @@
 {
   "name": "froyo",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "license": "GPL-3.0-or-later",
   "private": true,
   "author": "Emekalim <Emekalim@users.noreply.github.com>",
@@ -9,6 +9,7 @@
   "homepage": "https://github.com/Emekalim/FroYoflix_v2#readme",
   "scripts": {
     "start": "cross-env NODE_ENV=development webpack build && concurrently --kill-others \"npm run web:watch\" \"npm run electron:start\"",
+    "start:update-test": "cross-env NODE_ENV=development FROYO_FORCE_DEV_UPDATES=1 FROYO_SIMULATE_DEV_UPDATE=1 webpack build && concurrently --kill-others \"npm run web:watch\" \"npm run electron:start\"",
     "web:watch": "webpack serve",
     "web:build": "cross-env NODE_ENV=production webpack build",
     "electron:start": "electron ./build/main.js",
@@ -111,12 +112,10 @@
       ],
       "target": [
         {
-          "arch": "x64",
-          "target": "zip"
-        },
-        {
-          "arch": "arm64",
-          "target": "zip"
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
         }
       ]
     },

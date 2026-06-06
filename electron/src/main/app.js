@@ -13,7 +13,7 @@ import electronShutdownHandler from '@paymoapp/electron-shutdown-handler'
 import { development, getWindowState, saveWindowState, getDefaultBounds } from './util.js'
 import Discord from './discord.js'
 import Protocol from './protocol.js'
-import Updater from './updater.js'
+import Updater from './updater/index.js'
 import Dialog from './dialog.js'
 import Debug from './debugger.js'
 import { Transcoder } from './transcoder.js'
@@ -61,7 +61,9 @@ export default class App {
 
   discord = new Discord(this.mainWindow)
   protocol = new Protocol(this.mainWindow)
-  updater = new Updater(this.mainWindow, () => this.webtorrentWindow)
+  updater = new Updater(this.mainWindow, {
+    onInstallRequested: () => this.destroy(true)
+  })
   dialog = new Dialog()
   tray = new Tray(this.trayIcon)
   imageDir = join(app.getPath('userData'), 'Cache', 'Image_Data')
@@ -202,6 +204,8 @@ export default class App {
       this.mainWindow.loadURL(`file://${join(__dirname, '/app.html')}`)
     }
 
+    this.updater.start()
+
     let crashcount = 0
     this.mainWindow.webContents.on('render-process-gone', async (e, { reason }) => {
       if (reason === 'crashed') {
@@ -282,10 +286,6 @@ export default class App {
 
         authWindow.loadURL(url)
       }
-    })
-
-    ipcMain.on('quit-and-install', () => {
-      if (this.updater.hasUpdate) this.destroy(true)
     })
 
     // Folder scanner for local media search (recursive)
@@ -515,7 +515,7 @@ export default class App {
   async destroy(forceRunAfter = false) {
     if (this.destroyed) return
     this.destroyed = true
-    this.updater.destroyed = true
+    this.updater.destroy()
     this.close = true
     this.mainWindow.hide()
     this.mainWindow.webContents?.closeDevTools?.()
@@ -539,7 +539,7 @@ export default class App {
         clearTimeout(resolveTimeout)
       }
     } catch { } // WebTorrent crashed... prevents hanging infinitely.
-    if (!this.updater.install(forceRunAfter)) app.quit()
+    if (!this.updater.finalizeInstall(forceRunAfter)) app.quit()
   }
 
   imageCache = new Map()

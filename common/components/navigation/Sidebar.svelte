@@ -1,9 +1,13 @@
 <script>
   import { nowPlaying as media } from "@/components/MediaHandler.svelte";
   import { hasUnreadNotifications } from "@/modals/NotificationsModal.svelte";
-  import { updateState } from "@/modals/UpdateModal.svelte";
   import { settings } from "@/modules/settings.js";
   import { SUPPORTS } from "@/modules/support.js";
+  import {
+    updaterState,
+    UPDATE_PHASES,
+    shouldShowUpdateModal,
+  } from "@/modules/updater.js";
   import { status } from "@/modules/networking.js";
   import { click } from "@/modules/click.js";
   import { toast } from "svelte-sonner";
@@ -279,7 +283,7 @@
         />
       </SidebarLink>
     {/if}
-    {#if $updateState === "downloading"}
+    {#if $updaterState.phase === UPDATE_PHASES.DOWNLOADING}
       <SidebarLink
         click={() => {
           toast("Update is downloading...", {
@@ -306,10 +310,10 @@
             : `var(--tertiary-color-light)`}"
         />
       </SidebarLink>
-    {:else if $updateState === "ready" || $updateState === "ignored" || $updateState === "aborted"}
+    {:else if shouldShowUpdateModal($updaterState)}
       <SidebarLink
         click={() => {
-          $updateState = "ready";
+          modal.open(modal.UPDATE_PROMPT);
         }}
         icon="download"
         text="Update Available!"
@@ -338,9 +342,8 @@
       icon="bell"
       text="Notifications"
       css={!$settings.donate &&
-      $updateState !== `downloading` &&
-      $updateState !== `ready` &&
-      $updateState !== `ignored` &&
+      $updaterState.phase !== UPDATE_PHASES.DOWNLOADING &&
+      !shouldShowUpdateModal($updaterState) &&
       !SUPPORTS.isAndroid
         ? `mt-md-h-auto`
         : ``}

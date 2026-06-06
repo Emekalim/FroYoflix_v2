@@ -144,3 +144,30 @@ jobs:
         run: |
           cd electron
           pnpm run publish
+
+  publish-release-notes:
+    runs-on: ubuntu-latest
+    needs:
+      - release-windows
+      - release-macos
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Resolve release version
+        id: release-version
+        run: echo "value=$(node -p 'require(\"./electron/package.json\").version')" >> "$GITHUB_OUTPUT"
+
+      - name: Extract release notes from changelog
+        run: node scripts/extract-release-notes.mjs "${{ steps.release-version.outputs.value }}" > release-notes.md
+
+      - name: Update GitHub release notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "v${{ steps.release-version.outputs.value }}" --notes-file release-notes.md

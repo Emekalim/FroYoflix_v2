@@ -1,0 +1,5 @@
+provider: github
+owner: Emekalim
+repo: FroYoflix_v2
+releaseType: release
+updaterCacheDirName: froyo-updater-dev

@@ -45,6 +45,17 @@ This document tracks major feature implementations, architectural improvements, 
     -   **Refactored Deep Links:** Converted all `shiru://` protocol handlers and links to `froyo://`.
     -   **UI Polish:** Updated all visible text, links, and the Update Modal to reflect the new brand.
 
+### 6. Electron Updater Refactor
+**Goal:** Make desktop updates a first-class subsystem with a stable main-process service, preload API, and renderer state model.
+-   **Status:** **Implemented**.
+-   **Key Implementations:**
+    -   Moved Electron update orchestration into `electron/src/main/updater/`, with policy, state transitions, and install handoff owned by the main process.
+    -   Replaced renderer polling and ad hoc update events with a single updater state snapshot plus `updater:state-changed`.
+    -   Added a dedicated `window.updater` preload API and a shared renderer updater store for `UpdateModal`, Settings, and sidebar badges.
+    -   Added dev-only updater test support through `electron/dev-app-update.yml` plus `FROYO_FORCE_DEV_UPDATES` / `FROYO_SIMULATE_DEV_UPDATE` overrides and the `electron/package.json` `start:update-test` script.
+    -   Switched macOS release packaging to a universal updater ZIP to avoid architecture-specific checksum mismatches during desktop updates.
+    -   Added release-note publishing automation so the `CHANGELOG.md` entry for each tag becomes the GitHub Release body consumed by FroYo's update dialog.
+
 ---
 
 ## 🚧 Partial / In-Progress
