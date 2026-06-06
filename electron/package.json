@@ -94,6 +94,7 @@
     "mac": {
       "artifactName": "${os}-${productName}-v${version}.${ext}",
       "singleArchFiles": "node_modules/+(register-scheme|utp-native|fs-native-extensions)/**",
+      "x64ArchFiles": "Contents/Resources/bin/{HandBrakeCLI,ffmpeg,ffprobe}",
       "category": "public.app-category.video",
       "darkModeSupport": true,
       "icon": "buildResources/icon.icns",
