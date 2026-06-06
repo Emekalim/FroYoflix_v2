@@ -2,4 +2,6 @@ node_modules
 .env
 electron/build/
 electron/dist/
+electron/resources/mac/ffmpeg
+electron/resources/mac/ffprobe
 .DS_Store
