@@ -1,0 +1,165 @@
+# HLS Migration & Caching - Technical Debrief
+
+## 1. Executive Technical Summary
+
+We implemented a **local HLS streaming architecture** within an Electron application to enable playback of unsupported video formats (MKV, HEVC, etc.) by transcoding them on-the-fly. The system spawns an internal HTTP server that uses FFmpeg to generate `.m3u8` playlists and MPEG-TS segments, which are consumed by `hls.js` in the Svelte frontend.
+
+**Core Architecture**: Node.js `http` server + [fluent-ffmpeg](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/node_modules/fluent-ffmpeg) (backend) <-> `hls.js` (frontend).
+**Hardest Constraint**: Real-time transcoding of **4K HDR HEVC** content on consumer hardware, which required enabling hardware acceleration (`videotoolbox`) and optimizing buffer settings to prevent stalling.
+**Highest-Impact Decision**: Implementing a **stateless** initialization endpoint (`/init`) that returns a deterministic HLS URL based on a file hash, but critically ensuring the *playlist request itself* carries the source file path to trigger transcoding if the cache is cold. This avoided complex state management in the backend.
+
+---
+
+## 2. Problem Definition
+
+**Objective**: Enable seamless playback of MKV/AVI/HEVC files in a Chromium-based player (Electron) that natively supports only MP4/WebM.
+**Requirements**: 
+-   **Low Latency**: Start playback within seconds.
+-   **Seeking**: Instant seek to any timestamp (impossible with simple HTTP range requests on non-native formats).
+-   **Persistence**: Cache transcoded segments to allow resuming without re-transcoding.
+-   **UX**: No "transcoding" loader; feel native.
+
+**Non-Trivial Aspects**:
+-   **Browser Constraints**: Chromium's strict media stack rejects unsupported codecs immediately (`NotSupportedError`) if not handled correctly.
+-   **File System Noise**: macOS created hidden `._` resource fork files that mimicked valid video extensions, crashing the scanner/transcoder.
+-   **Performance**: Software encoding (`libx264`) is too slow for 4K inputs, causing buffer underflows.
+
+---
+
+## 3. Environment Snapshot
+
+**Stack**:
+-   **Frontend**: Svelte, `hls.js` (v1.5+).
+-   **Backend**: Electron (Main Process), Node.js.
+-   **Transcoding**: [ffmpeg-static](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/node_modules/ffmpeg-static) (providing [ffmpeg](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/node_modules/fluent-ffmpeg) binary), [fluent-ffmpeg](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/node_modules/fluent-ffmpeg) (wrapper).
+-   **Utilities**: [get-port](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/node_modules/get-port) (dynamic port assignment).
+
+**Key Dependencies**:
+-   [ffmpeg-static](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/node_modules/ffmpeg-static): Path resolution logic is critical (`app.asar.unpacked` in production).
+-   [fluent-ffmpeg](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/node_modules/fluent-ffmpeg): Command construction.
+
+**Infrastructure**:
+-   **Local Temporary Directory**: Stores HLS segments (`app.getPath('temp')/froyo-transcode/<hash>`).
+-   **Hash Logic**: SHA-256 of `filepath + mtime + size` ensures cache validity.
+
+---
+
+## 4. Architecture & Decision Record
+
+### Decision: HLS over Progressive MP4 Streaming
+-   **Alternative 1**: Simple HTTP Server streaming MP4 (converting on fly).
+-   **Alternative 2**: WebTorrent / WebRTC.
+-   **Why Rejected**: MP4 streaming (via FFmpeg piping) has poor seeking performance (linear scan required) and doesn't support adaptive bitrate or easy caching of segments. HLS allows seeking by simply requesting `segment_X.ts`.
+-   **Consequences**: Higher complexity (managing playlists/segments), but superior UX (seeking/resuming). Storage overhead for segments.
+
+### Decision: Hardware Acceleration (`videotoolbox`)
+-   **Alternative**: Software encoding (`libx264` default).
+-   **Why Rejected**: `libx264` failed to transcoded 4K HEVC faster than real-time, resulting in `bufferStalledError`.
+-   **Consequences**: Platform-specific flags (need `nvenc` for Windows/Nvidia, `vaapi` for Linux).
+-   **Reversal Cost**: Low (just changing FFmpeg flags).
+
+---
+
+## 5. Implementation Walkthrough
+
+1.  **Backend Setup**: Created [transcoder.js](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/electron/src/main/transcoder.js) to manage an HTTP server and FFmpeg processes.
+    *   *Failure*: Stateless server didn't know which file to transcode when `hls.js` requested `playlist.m3u8` with just a hash.
+    *   *Fix*: Appended `?file=<encoded_path>` to the playlist URL returned by `/init`.
+2.  **Frontend Integration**: Added `hls.js` to [PlayerPage.svelte](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/common/routes/player/PlayerPage.svelte).
+    *   *Failure*: `NotSupportedError` because the video element still had a generic `src` or wasn't cleared before `hls.attachMedia`.
+    *   *Fix*: Explicit `video.removeAttribute('src')` before HLS attach.
+3.  **Handling Hidden Files**:
+    *   *Failure*: Scanner picked up `._movie.mkv` (4KB metadata file). FFmpeg choked.
+    *   *Fix*: Filtered `._*` files in [folder-scanner.js](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/common/modules/folder-scanner.js) and [PlayerPage.svelte](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/common/routes/player/PlayerPage.svelte) updates. Cleaned cache in [MediaHandler.svelte](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/common/components/MediaHandler.svelte).
+4.  **Optimization**:
+    *   *Signal*: Player stalled at 10s mark (`bufferStalledError`).
+    *   *Fix*: Switched FFmpeg from `libx264` -> `h264_videotoolbox` and increased `hls.js` `maxBufferLength` to 30s.
+
+---
+
+## 6. Failure Modes & Roadblocks
+
+### **1. The "Native Player Conflict"**
+-   **Root Cause**: Calling `hls.attachMedia(video)` while `video.src` is set causes a race condition where the browser tries to load `src` using native decoder (failing for MKV) while HLS tries to take over.
+-   **Obviousness**: Low. Most docs assume a clean video tag.
+-   **Detection**: `NotSupportedError` in console immediately on load.
+-   **Fix**: `video.removeAttribute('src'); src = '';` BEFORE creating `new Hls()`.
+
+### **2. The "Stateless Playlist" Trap**
+-   **Root Cause**: The `/init` endpoint returned a URL like `/hls/<hash>/playlist.m3u8`. When the browser requested this URL, the server had no context of *which file* `<hash>` corresponded to if it wasn't already cached/running.
+-   **Obviousness**: Medium. One might assume the server "remembers" the hash mapping from `/init`.
+-   **Detection**: `400 Bad Request` or `404 Not Found` on playlist request.
+-   **Fix**: Return `/hls/<hash>/playlist.m3u8?file=...` so the request is self-contained.
+
+### **3. The "macOS Ghost File"**
+-   **Root Cause**: macOS creates `._filename.ext` resource forks on non-HFS+ drives (exFAT/SMB). Node `fs.readdir` sees them. They have the same extension `.mkv` so regex filters pass them.
+-   **Obviousness**: High if experienced with macOS, but easy for an agent to miss if only looking at code.
+-   **Detection**: FFmpeg error "Invalid data found when processing input" or network error on small files.
+-   **Fix**: Global filter `!filename.startsWith('._')`.
+
+---
+
+## 7. Hidden Constraints Discovered Late
+
+-   **Transcoding Startup Latency**: Generating the first HLS segment + playlist for a 4K file takes significantly longer (>5s) than for 1080p.
+    *   *Impact*: The default 10s timeout in [transcoder.js](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/electron/src/main/transcoder.js) was hit, causing 503 errors.
+    *   *Fix*: Increased wait loop to 60s.
+-   **Import Reliability**: A missing import ([getAniMappings](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/common/modules/anime/anime.js#984-1035)) in a seemingly unrelated logic block (`MediaHandler`) caused the entire playback flow to stall silently or crash.
+    *   *Fix*: Strict linting/checking of all referenced functions.
+
+---
+
+## 8. Optimization Opportunities
+
+### Immediate Optimizations
+-   **Platform Detection**: Dynamically select `h264_nvenc` (Windows), `h264_vaapi` (Linux), or `h264_videotoolbox` (macOS) in [transcoder.js](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/electron/src/main/transcoder.js).
+-   **Clean Exit**: Ensure [ffmpeg](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/node_modules/fluent-ffmpeg) processes are killed on app exit (currently done but could be more robust with [tree-kill](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/node_modules/tree-kill)).
+
+### Structural Improvements
+-   **Pre-Transcoding**: Detect "Planning" or "Next Up" items and start transcoding them in the background (low priority process) before user clicks play.
+-   **Segment Cleanup**: Implement LRU cache eviction for the temp directory to prevent disk fill-up.
+
+---
+
+## 9. Strategic Re-Implementation (Version 2)
+
+If building again:
+1.  **Use a Dedicated Streaming Library**: Instead of raw [fluent-ffmpeg](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/node_modules/fluent-ffmpeg) and `http` server, use a library like `node-media-server` or similar if it supports on-the-fly transcoding, or build a specialized `TranscodeWorker` class that runs in a separate child process (fork) to avoid blocking the main process event loop.
+2.  **Database-Backed Library**: Stop relying on file system scanning/hashing for every play. Scan once, store metadata (and tech specs like "needs transcoding") in a SQLite DB. Use DB ID for cache keys.
+3.  **Client-Side Check**: Use `canPlayType` robustly. If native supports it, bypass HLS entirely. (We did this, but it can be more granular).
+
+---
+
+## 10. Agent-to-Agent Execution Guidance
+
+-   **Verify Imports First**: Before debugging "why it stopped", check for `ReferenceError` in console. A missing import in a helper function can look like a logic stalling.
+-   **Always Check Hidden Files**: If explicit file paths are involved, assume the OS might inject garbage (`._`, [.DS_Store](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/.DS_Store)). Filter aggressively.
+-   **Hardware Acceleration is Mandatory**: For video tasks in 2024+, do not assume `libx264` is fast enough for 4K. Default to hardware encoders where possible.
+-   **Logs**: Log the *exact* command line of spawned processes. It saves hours of guessing why [ffmpeg](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/node_modules/fluent-ffmpeg) failed.
+
+---
+
+## 11. Innovation Opportunities
+
+-   **WebCodecs API**: Use standard WebCodecs to decode frames in a Worker and render to Canvas. This bypasses HLS/FFmpeg packaging entirely for some formats, potentially offering lower latency, though audio sync is hard.
+-   **WASM FFmpeg**: Run a lightweight FFmpeg in Wasm on the client to remux (not re-encode) compatible streams (e.g. MKV with H.264/AAC -> MP4) without server overhead. This is "copy" mode, extremely fast.
+
+---
+
+## 12. Minimal Execution Playbook
+
+1.  **Install**: [fluent-ffmpeg](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/node_modules/fluent-ffmpeg), [ffmpeg-static](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/node_modules/ffmpeg-static), `hls.js`, [get-port](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/node_modules/get-port).
+2.  **Backend**: Create [Transcoder](file:///Users/franklin/Documents/Workspace/PersonalProjects/FroYoflix/electron/src/main/transcoder.js#27-217) class with `http.createServer`.
+3.  **Endpoint**: Implement `/init?file=...` returning `{ url: .../playlist.m3u8?file=... }`.
+4.  **Stream Handler**: Implement `/hls/:hash/playlist.m3u8`.
+    *   Check cache.
+    *   If missing, spawn `ffmpeg -i file -c:v h264_videotoolbox -f hls ...`.
+    *   Wait for file existence loop.
+5.  **Frontend**: In `Player.svelte`:
+    *   Import `Hls`.
+    *   `video.removeAttribute('src')`.
+    *   `hls = new Hls({ maxBufferLength: 30 })`.
+    *   `hls.loadSource(url)`.
+    *   `hls.attachMedia(video)`.
+6.  **Cleanup**: `hls.destroy()` on unmount. Kill ffmpeg on exit.
+7.  **Filter**: Apply `!file.startsWith('._')` in all file list logic.

@@ -13,6 +13,8 @@ const debug = Debug('ui:history')
  * @property {string} value Current page value
  * @property {string} HOME
  * @property {string} SEARCH
+ * @property {string} LIBRARY
+ * @property {string} LIBRARY_SEARCH
  * @property {string} SCHEDULE
  * @property {string} SETTINGS
  * @property {string} PLAYER
@@ -58,6 +60,8 @@ export const page = (() => {
   const PAGES = {
     HOME: 'home',
     SEARCH: 'search',
+    LIBRARY: 'library',
+    LIBRARY_SEARCH: 'library_search',
     SCHEDULE: 'schedule',
     SETTINGS: 'settings',
     PLAYER: 'player',

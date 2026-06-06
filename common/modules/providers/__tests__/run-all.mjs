@@ -27,7 +27,7 @@ async function runAllTests() {
   console.log('\n')
   console.log('╔════════════════════════════════════════════════════════╗')
   console.log('║                                                        ║')
-  console.log('║        SHIRU PROVIDER ABSTRACTION TEST SUITE           ║')
+  console.log('║        FroYo PROVIDER ABSTRACTION TEST SUITE           ║')
   console.log('║                                                        ║')
   console.log('╚════════════════════════════════════════════════════════╝')
   console.log('\n')

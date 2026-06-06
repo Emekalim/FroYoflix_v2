@@ -121,7 +121,7 @@
     const audio = !Array.isArray(aud) ? [aud] : aud
 
     // Preprocess fileName: remove titles from search.media.titles if they exist to prevent incorrect termMappings e.g; Synduality Noir being detected as Dual Audio (SynDUALity).
-    let fileName = _fileName
+    let fileName = String(_fileName || '')
     if (fileName && search?.media?.title) {
       for (const title of Object.values(search.media.title)) {
         if (title) {
@@ -137,7 +137,7 @@
     }
 
     // Remove release group from fileName
-    if (group) fileName = fileName.replace(new RegExp(String(group).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '')
+    if (group && fileName) fileName = fileName.replace(new RegExp(String(group).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '')
 
     let terms = [...new Set([...video, ...audio].map(term => {
       const key = term?.toUpperCase()
@@ -186,11 +186,11 @@
     const audio = !Array.isArray(aud) ? [aud] : aud
     const resolutions = resolution ? (Array.isArray(resolution) ? resolution : [resolution]) : []
     const removeTerm = term => {
-      if (term) simpleName = simpleName.replace(new RegExp(String(term).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '')
+      if (term && simpleName) simpleName = simpleName.replace(new RegExp(String(term).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '')
     }
 
     // Preprocess simpleName: remove titles from search.media.titles if they exist to prevent incorrect termMappings e.g; Synduality Noir being detected as Dual Audio (SynDUALity).
-    let simpleName = name
+    let simpleName = String(name || '')
     const titleHolders = []
     if (simpleName && search?.media?.title) {
       for (const title of Object.values(search.media.title)) {
@@ -215,11 +215,13 @@
     sanitized.forEach(term => removeTerm(term.key))
     simpleName = simpleName.replace(/[[{(]\s*[\]})]/g, '').replace(/,\s*[)\]]/g, match => match.slice(-1)).replace(/,+/g, ',').replace(/[-_.\s]{2,}/g, ' ').replace(/^[, ]+|[, ]+$/g, '').replace(/,\s*([)\]])/g, '$1').replace(/[[(]\s*-\s*[\])]*/g, '').replace(/\(\s?\)/g, '').trim()
     titleHolders.forEach(title => simpleName = simpleName.replace(new RegExp(title.placeholder, 'g'), title.original))
-    return simpleName
+    return simpleName || MediaResolver.cleanFileName(result?.title || '') || 'Unknown Torrent'
   }
 </script>
 
 <script>
+  import MediaResolver from '@/modules/resolver/MediaResolver.js'
+
   /** @type {Result & { parseObject: AnitomyResult }} */
   export let result
 
@@ -248,9 +250,21 @@
     card.style.borderColor = color
     card.style.setProperty('color', color)
   }
+
+  function getDisplayTitle(result) {
+    return MediaResolver.cleanFileName(result?.title || result?.parseObject?.file_name || '') || 'Unknown Torrent'
+  }
+
+  function getReleaseLabel(result) {
+    const releaseGroup = result?.parseObject?.release_group && result.parseObject.release_group.length < 20
+      ? result.parseObject.release_group
+      : ''
+    const sourceName = result?.source?.name || 'Unknown Source'
+    return releaseGroup ? `${releaseGroup} • ${sourceName}` : sourceName
+  }
 </script>
 
-<div class='card bg-dark p-15 d-flex mx-0 pointer mb-10 mt-0 position-relative scale rounded-3' class:not-reactive={!$reactive} class:glow={countdown > -1} role='button' tabindex='0' use:click={() => play(result)} on:contextmenu|preventDefault={() => copyToClipboard(result.link, 'magnet URL')} title={result.parseObject.file_name}>
+<div class='card bg-dark p-15 d-flex mx-0 pointer mb-10 mt-0 position-relative scale rounded-3' class:not-reactive={!$reactive} class:glow={countdown > -1} role='button' tabindex='0' use:click={() => play(result)} on:contextmenu|preventDefault={() => copyToClipboard(result.uri, 'magnet URL')} title={result.parseObject.file_name}>
   <div class='position-absolute top-0 left-0 w-full h-full'>
     <div class='position-absolute w-full h-full overflow-hidden rounded-3' class:image-border={type === 'default'} >
       <SmartImage class='img-cover w-full h-full' images={[
@@ -268,7 +282,7 @@
     </div>
     <div class='position-absolute rounded-3 opacity-transition-hack' style='background: var(--torrent-card-gradient);' />
   </div>
-  <button type='button' tabindex='-1' class='position-absolute torrent-safe-area top-0 right-0 h-full w-50 bg-transparent border-0 shadow-none not-reactive z-1' use:click={() => {}}/>
+  <button type='button' tabindex='-1' class='position-absolute torrent-safe-area top-0 right-0 h-full w-50 bg-transparent border-0 shadow-none not-reactive z-0' use:click={() => {}}/>
   <div class='d-flex pl-10 flex-column justify-content-between w-full h-auto position-relative' style='min-height: 10rem; min-width: 0;'>
     <div class='d-flex w-full'>
       {#if result.accuracy === 'high'}
@@ -276,10 +290,10 @@
           <BadgeCheck size='2.5rem' />
         </div>
       {/if}
-      <div class='font-size-22 font-weight-bold text-nowrap d-flex align-items-center'>
-        {result.parseObject?.release_group && result.parseObject.release_group.length < 20 ? result.parseObject.release_group : 'No Group'}
+      <div class='font-size-13 text-muted text-uppercase text-truncate d-flex align-items-center mw-0'>
+        <span class='text-truncate'>{getReleaseLabel(result)}</span>
         {#if countdown > -1}
-          <div class='ml-10'>[{countdown}]</div>
+          <div class='ml-10 flex-shrink-0'>[{countdown}]</div>
         {/if}
       </div>
       {#if result.type === 'batch'}
@@ -295,12 +309,17 @@
         {/if}
       </div>
     </div>
-    <div class='py-5 font-size-14 text-muted d-flex align-items-center'>
+    <div class='py-5 pr-40 font-size-22 font-weight-bold line-2 overflow-hidden text-white'>
+      {getDisplayTitle(result)}
+    </div>
+    <div class='pb-5 font-size-14 text-muted d-flex align-items-center'>
       {#await simplifyFilename({ media, episode }, result.parseObject) then fileName}
-        <span class='overflow-hidden text-truncate'>{fileName}</span>
+        {#if fileName && fileName !== getDisplayTitle(result)}
+          <span class='overflow-hidden text-truncate'>{fileName}</span>
+        {/if}
       {/await}
       <span class='ml-auto mr-5 w-30 h-10 flex-shrink-0'/>
-      <TorrentButton class='position-absolute btn btn-square shadow-none bg-transparent bd-highlight h-40 w-40 right-0 mr--8 z-1' hash={result.hash} torrentID={result.link} search={{ media, episode: (media?.format !== 'MOVIE' && result.type !== 'batch') && episode }} size={'2.5rem'} strokeWidth={'2.3'}/>
+      <TorrentButton class='position-absolute btn btn-square shadow-none bg-transparent bd-highlight h-40 w-40 right-0 mr--8 z-2' hash={result.hash} torrentID={result.uri} search={{ media, episode: (media?.format !== 'MOVIE' && result.type !== 'batch') && episode }} size={'2.5rem'} strokeWidth={'2.3'}/>
     </div>
     <div class='metadata-container d-flex w-full align-items-start text-dark font-size-14' style='line-height: 1;'>
       <div class='primary-metadata py-5 d-flex flex-row'>

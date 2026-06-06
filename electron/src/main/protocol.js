@@ -5,16 +5,16 @@ import path from 'path'
 
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient('shiru', process.execPath, [path.resolve(process.argv[1])])
+    app.setAsDefaultProtocolClient('froyo', process.execPath, [path.resolve(process.argv[1])])
     app.setAsDefaultProtocolClient('magnet', process.execPath, [path.resolve(process.argv[1])])
   }
 } else {
-  app.setAsDefaultProtocolClient('shiru')
+  app.setAsDefaultProtocolClient('froyo')
   app.setAsDefaultProtocolClient('magnet')
 }
 
 export default class Protocol {
-  // schema: shiru://key/value
+  // schema: froyo://key/value
   protocolMap = {
     alauth: token => this.sendToken(token),
     malauth: token => this.sendMalToken(token),
@@ -24,21 +24,21 @@ export default class Protocol {
     search: id => this.play(id),
     w2g: link => this.window.webContents.send('w2glink', link),
     schedule: () => this.window.webContents.send('schedule'),
-    donate: () => shell.openExternal('https://github.com/sponsors/RockinChaos/'),
+    donate: () => shell.openExternal('https://github.com/sponsors/Emekalim/'),
     update: () => ipcMain.emit('quit-and-install'),
-    changelog: () => shell.openExternal('https://github.com/RockinChaos/Shiru/releases/latest'),
+    changelog: () => shell.openExternal('https://github.com/Emekalim/FroYoflix_v2/releases/latest'),
     show: () => ipcMain.emit('window-show')
   }
 
-  protocolRx = /shiru:\/\/([a-z0-9]+)\/(.*)/i
+  protocolRx = /froyo:\/\/([a-z0-9]+)\/(.*)/i
 
   /**
    * @param {import('electron').BrowserWindow} window
    */
-  constructor (window) {
+  constructor(window) {
     this.window = window
 
-    protocol.registerHttpProtocol('shiru', (req, cb) => {
+    protocol.registerHttpProtocol('froyo', (req, cb) => {
       const token = req.url.slice(7)
       this.window.loadURL(development ? 'http://localhost:3000/app.html' + token : `file://${path.join(__dirname, '/app.html')}${token}`)
     })
@@ -107,7 +107,7 @@ export default class Protocol {
   /**
    * @param {string} line
    */
-  sendToken (line) {
+  sendToken(line) {
     let token = line.split('access_token=')[1].split('&token_type')[0]
     if (token) {
       if (token.endsWith('/')) token = token.slice(0, -1)
@@ -118,7 +118,7 @@ export default class Protocol {
   /**
    * @param {string} line
    */
-  sendMalToken (line) {
+  sendMalToken(line) {
     let code = line.split('code=')[1].split('&state')[0]
     let state = line.split('&state=')[1]
     if (code && state) {
@@ -126,7 +126,7 @@ export default class Protocol {
       if (state.endsWith('/')) state = state.slice(0, -1)
       if (state.includes('%')) state = decodeURIComponent(state)
       this.window.webContents.send('maltoken', code, state)
-    } 
+    }
   }
 
   /**
@@ -138,17 +138,17 @@ export default class Protocol {
   }
 
   /**
-   * @param {string} magnet - The magnet link.
+   * @param {string} uri - The torrent URI.
    */
-  add(magnet) {
-    this.window.webContents.send('play-torrent', { magnet })
+  add(uri) {
+    this.window.webContents.send('play-torrent', { uri })
     ipcMain.emit('window-show')
   }
 
   /**
    * @param {string} text
    */
-  handleProtocol (text) {
+  handleProtocol(text) {
     // Handle magnet links
     if (!text) return
     if (text.startsWith("magnet:")) {
@@ -156,7 +156,7 @@ export default class Protocol {
       return
     }
 
-    // Handle shiru:// scheme
+    // Handle froyo:// scheme
     const match = text.match(this.protocolRx)
     if (match) this.protocolMap[match[1]]?.(match[2])
     return match

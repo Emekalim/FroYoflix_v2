@@ -76,6 +76,9 @@
   )
 
   function searchClear() {
+    const fileEdit = search.fileEdit
+    const manualMatch = search.manualMatch
+    const clearNext = search.clearNext
     search = {
       scheduleList: ($page === page.SCHEDULE),
       genre: [],
@@ -86,7 +89,9 @@
       format_not: [],
       status: [],
       status_not: [],
-      ...(search.fileEdit ? { fileEdit: search.fileEdit } : {}),
+      ...(fileEdit ? { fileEdit } : {}),
+      ...(manualMatch ? { manualMatch } : {}),
+      ...(clearNext ? { clearNext } : {}),
       ...(($page === page.SCHEDULE) ? { load: search.load } : { season: '', sort: ''})
     }
     searchTags.tags = []

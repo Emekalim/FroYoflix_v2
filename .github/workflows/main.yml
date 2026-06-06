@@ -1,0 +1,146 @@
+name: Electron Build and Release
+
+on:
+  workflow_dispatch:  # Allows manual triggering
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: '22.21.1'
+  PNPM_VERSION: '10.15.1'
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v3
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Download Windows binaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path "electron/resources/win" | Out-Null
+
+          # --- ffmpeg ---
+          Write-Host "::group::Downloading ffmpeg"
+          Write-Host "Fetching ffmpeg essentials build from gyan.dev..."
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "ffmpeg.zip"
+          Write-Host "Extracting ffmpeg.exe and ffprobe.exe..."
+          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg-tmp" -Force
+          $ffmpegExe = Get-ChildItem -Path "ffmpeg-tmp" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          $ffprobeExe = Get-ChildItem -Path "ffmpeg-tmp" -Recurse -Filter "ffprobe.exe" | Select-Object -First 1
+          Copy-Item $ffmpegExe.FullName -Destination "electron/resources/win/ffmpeg.exe"
+          Copy-Item $ffprobeExe.FullName -Destination "electron/resources/win/ffprobe.exe"
+          $sizeMB = [math]::Round((Get-Item "electron/resources/win/ffmpeg.exe").Length / 1MB, 1)
+          Write-Host "ffmpeg.exe ready ($sizeMB MB)"
+          $sizeMB = [math]::Round((Get-Item "electron/resources/win/ffprobe.exe").Length / 1MB, 1)
+          Write-Host "ffprobe.exe ready ($sizeMB MB)"
+          Write-Host "::endgroup::"
+
+          # --- HandBrakeCLI ---
+          Write-Host "::group::Downloading HandBrakeCLI"
+          Write-Host "Fetching latest HandBrakeCLI release from GitHub..."
+          $hbRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/HandBrake/HandBrake/releases/latest"
+          $hbUrl = ($hbRelease.assets | Where-Object { $_.name -like "HandBrakeCLI-*-win-x86_64.zip" }).browser_download_url
+          Write-Host "Downloading $hbUrl..."
+          Invoke-WebRequest -Uri $hbUrl -OutFile "handbrake.zip"
+          Write-Host "Extracting HandBrakeCLI.exe..."
+          Expand-Archive -Path "handbrake.zip" -DestinationPath "handbrake-tmp" -Force
+          $hbExe = Get-ChildItem -Path "handbrake-tmp" -Recurse -Filter "HandBrakeCLI.exe" | Select-Object -First 1
+          Copy-Item $hbExe.FullName -Destination "electron/resources/win/HandBrakeCLI.exe"
+          $sizeMB = [math]::Round((Get-Item "electron/resources/win/HandBrakeCLI.exe").Length / 1MB, 1)
+          Write-Host "HandBrakeCLI.exe ready ($sizeMB MB)"
+          Write-Host "::endgroup::"
+
+      - name: Install dependencies
+        run: |
+          cd electron
+          pnpm install --frozen-lockfile
+
+      - name: Build and Publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          cd electron
+          pnpm run publish
+#
+#  release-linux:
+#    runs-on: ubuntu-latest
+#
+#    steps:
+#      - name: Check out Git repository
+#        uses: actions/checkout@v3
+#
+#      - name: Setup PNPM
+#        uses: pnpm/action-setup@v4
+#        with:
+#          version: ${{ env.PNPM_VERSION }}
+#
+#      - name: Setup Node.js
+#        uses: actions/setup-node@v4
+#        with:
+#          node-version: ${{ env.NODE_VERSION }}
+#          cache: 'pnpm'
+#
+#      - name: Install dependencies
+#        run: |
+#          cd electron
+#          pnpm install --frozen-lockfile
+#
+#      - name: Build and Publish
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#        run: |
+#          cd electron
+#          pnpm run publish
+
+  release-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v3
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install Setuptools for Python (macOS only)
+        run: pip3 install setuptools --break-system-packages
+
+      - name: Install dependencies
+        run: |
+          cd electron
+          pnpm install --frozen-lockfile
+
+      - name: Build and Publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd electron
+          pnpm run publish

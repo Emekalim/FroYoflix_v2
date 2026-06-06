@@ -6,7 +6,22 @@
  * @typedef {import('../types').ParsedFilename} ParsedFilename
  */
 
-import { basename, extname } from 'path'
+/**
+ * Browser-compatible path utilities
+ */
+function basename(filepath, ext = '') {
+  const name = filepath.split(/[/\\]/).pop() || ''
+  if (ext && name.endsWith(ext)) {
+    return name.slice(0, -ext.length)
+  }
+  return name
+}
+
+function extname(filepath) {
+  const name = filepath.split(/[/\\]/).pop() || ''
+  const lastDot = name.lastIndexOf('.')
+  return lastDot > 0 ? name.slice(lastDot) : ''
+}
 
 /**
  * Abstract base class for all filename parsers

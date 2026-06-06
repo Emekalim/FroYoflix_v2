@@ -9,17 +9,33 @@ import { toast } from 'svelte-sonner'
 import clipboard from '@/modules/clipboard.js'
 import { setHash } from '@/modules/anime/animehash.js'
 import { IPC } from '@/modules/bridge.js'
+import { ELECTRON } from '@/modules/bridge.js'
 import WPC from '@/modules/wpc.js'
 import 'browser-event-target-emitter'
 import Debug from 'debug'
 const debug = Debug('ui:torrent')
 
 const excludedToastMessages = ['no buffer space', 'localDescription']
-const torrentRx = /(^magnet:){1}|(^[A-F\d]{8,40}$){1}|(.*\.torrent$){1}/i
+const torrentRx = /(^magnet:){1}|(^[A-F\d]{40}$){1}|(.*\.torrent$){1}/i
 let _settings
+
+function isPlayableTorrentIdentifier(torrentID, base64 = false) {
+  if (base64) return true
+  if (torrentID instanceof Uint8Array) return true
+  const candidate = String(torrentID || '').trim()
+  if (!candidate) return false
+  if (candidate.startsWith('magnet:')) {
+    // Require a valid btih hash: 40-char hex (v1), 32-char base32, or 64-char hex (v2)
+    return /[?&]xt=urn:btih:([A-F\d]{40,64}|[A-Z2-7]{32})([&\s#]|$)/i.test(candidate)
+  }
+  if (/^[A-F\d]{40}$/i.test(candidate)) return true
+  if (/^https?:\/\/.+\.torrent(\?.*)?$/i.test(candidate)) return true
+  return false
+}
+
 class TorrentWorker extends EventTarget {
 
-  constructor () {
+  constructor() {
     super()
 
     this.ready = new Promise(resolve => {
@@ -33,11 +49,11 @@ class TorrentWorker extends EventTarget {
     })
   }
 
-  handleMessage ({ data }) {
+  handleMessage({ data }) {
     this.emit(data.type, data.data)
   }
 
-  async send (type, data, transfer) {
+  async send(type, data, transfer) {
     await this.ready
     debug(`Sending message ${type}`, data && type !== 'load' ? JSON.stringify(data) : '')
     this.port.postMessage({ type, data }, transfer)
@@ -86,10 +102,10 @@ clipboard.on('text', ({ detail }) => {
   }
 })
 if (!SUPPORTS.isAndroid) {
-  clipboard.on('files', async ({detail}) => {
+  clipboard.on('files', async ({ detail }) => {
     for (const file of detail) {
       if (file.name.endsWith('.torrent')) {
-        media.value = {torrent: true}
+        media.value = { torrent: true }
         add(new Uint8Array(await file.arrayBuffer()))
       }
     }
@@ -98,6 +114,13 @@ if (!SUPPORTS.isAndroid) {
 
 export async function add(torrentID, search, hash, magnet, base64 = false) {
   if (torrentID) {
+    if (!isPlayableTorrentIdentifier(torrentID, base64)) {
+      console.error('Invalid torrent identifier rejected before send', { torrentID, search, hash, magnet, base64 })
+      toast.error('Invalid torrent identifier', {
+        description: 'This result did not include a playable magnet, hash, or .torrent URL.'
+      })
+      return
+    }
     debug('Adding torrent', JSON.stringify({ torrentID, search, hash, magnet }))
     files.set([])
     page.navigateTo(page.PLAYER)
@@ -109,6 +132,13 @@ export async function add(torrentID, search, hash, magnet, base64 = false) {
 }
 export async function stage(torrentID, search, hash) {
   if (torrentID) {
+    if (!isPlayableTorrentIdentifier(torrentID, false)) {
+      console.error('Invalid staged torrent identifier rejected before send', { torrentID, search, hash })
+      toast.error('Invalid torrent identifier', {
+        description: 'This result did not include a playable magnet, hash, or .torrent URL.'
+      })
+      return
+    }
     debug('Pre-Adding torrent', JSON.stringify({ torrentID, search, hash }))
     if (hash && search) setHash(hash, { mediaId: search.media?.id, episode: search.episode, client: true })
     client.send('stage', { id: torrentID, hash: (hash === torrentID && torrentID) || false })
@@ -128,10 +158,10 @@ export async function unload(torrent, hash) {
     client.send('unload', { torrent, hash })
   }
 }
-export async function untrack(hash) {
+export async function untrack(hash, deleteData = false) {
   if (hash) {
-    debug('Untracking torrent', hash)
-    client.send('untrack', hash)
+    debug('Untracking torrent', hash, deleteData)
+    client.send('untrack', { hash, deleteData })
   }
 }
 export async function complete(hash) {
@@ -200,7 +230,7 @@ function setupTorrentClient() {
     deduplicateTorrents(detail?.infoHash, 'stagingTorrents', 'seedingTorrents', 'completedTorrents')
     client.emit('untrack', detail?.infoHash)
   })
-  client.on('untrack',  ({ detail }) => {
+  client.on('untrack', ({ detail }) => {
     debug(`Untracking torrent:`, JSON.stringify(detail))
     for (const category of ['stagingTorrents', 'seedingTorrents', 'completedTorrents']) {
       const list = cache.getEntry(caches.GENERAL, category) || []
@@ -210,7 +240,7 @@ function setupTorrentClient() {
     seedingTorrents.update(arr => arr.filter(torrent => torrent.infoHash !== detail))
     completedTorrents.update(arr => arr.filter(torrent => torrent.infoHash !== detail))
   })
-  client.on('staging',  ({ detail }) => {
+  client.on('staging', ({ detail }) => {
     debug(`Staging torrent:`, JSON.stringify(detail))
     const torrents = cache.getEntry(caches.GENERAL, 'stagingTorrents') || []
     if (!torrents.includes(detail)) {
@@ -223,21 +253,30 @@ function setupTorrentClient() {
     completedTorrents.update(torrents => torrents.filter(torrent => torrent.infoHash !== detail))
     if (found) (found.incomplete ? stagingTorrents : seedingTorrents).update(prev => [found, ...prev.filter(torrent => torrent.infoHash !== detail)])
   })
-  client.on('seeding',  ({ detail }) => {
+  client.on('seeding', ({ detail }) => {
     debug(`Seeding torrent:`, JSON.stringify(detail))
     const torrents = cache.getEntry(caches.GENERAL, 'seedingTorrents') || []
     if (!torrents.includes(detail)) cache.setEntry(caches.GENERAL, 'seedingTorrents', Array.from(new Set([...torrents, detail])))
     deduplicateTorrents(detail, 'stagingTorrents', 'completedTorrents')
   })
-  client.on('completed',  ({ detail }) => {
+  client.on('completed', ({ detail }) => {
     debug(`Completed torrent:`, JSON.stringify(detail))
-    const torrents = cache.getEntry(caches.GENERAL, 'completedTorrents') || []
-    if (!torrents.includes(detail?.infoHash)) cache.setEntry(caches.GENERAL, 'completedTorrents', Array.from(new Set([...torrents, detail.infoHash])))
-    deduplicateTorrents(detail?.infoHash, 'stagingTorrents', 'seedingTorrents')
     if (loadedTorrent.value?.infoHash === detail.infoHash) loadedTorrent.update(() => ({}))
     stagingTorrents.update(arr => arr.filter(torrent => torrent.infoHash !== detail.infoHash))
     seedingTorrents.update(arr => arr.filter(torrent => torrent.infoHash !== detail.infoHash))
-    completedTorrents.update(prev => [detail, ...prev.filter(torrent => torrent.infoHash !== detail.infoHash)])
+    if (detail?.persisted !== false) {
+      const torrents = cache.getEntry(caches.GENERAL, 'completedTorrents') || []
+      if (!torrents.includes(detail?.infoHash)) cache.setEntry(caches.GENERAL, 'completedTorrents', Array.from(new Set([...torrents, detail.infoHash])))
+      deduplicateTorrents(detail?.infoHash, 'stagingTorrents', 'seedingTorrents')
+      completedTorrents.update(prev => [detail, ...prev.filter(torrent => torrent.infoHash !== detail.infoHash)])
+    } else {
+      deduplicateTorrents(detail?.infoHash, 'stagingTorrents', 'seedingTorrents', 'completedTorrents')
+    }
+    if (ELECTRON && detail?.incomingPath) {
+      import('@/modules/library/LibraryIngest.js')
+        .then(({ ingestTorrentCompletion }) => ingestTorrentCompletion(detail))
+        .catch(error => console.error('[Library] Failed to ingest completed torrent:', error))
+    }
   })
   client.on('completedStats', ({ detail }) => {
     WPC.send('rescan_done')
@@ -250,7 +289,7 @@ function setupTorrentClient() {
       for (const exclude of excludedToastMessages) {
         if ((detail.message || detail)?.toLowerCase()?.includes(exclude)) return
       }
-      toast.error('Torrent Error', {description: '' + (detail.message || detail)})
+      toast.error('Torrent Error', { description: '' + (detail.message || detail) })
     }
   })
   client.on('warn', ({ detail }) => {
@@ -259,7 +298,7 @@ function setupTorrentClient() {
       for (const exclude of excludedToastMessages) {
         if ((detail.message || detail)?.toLowerCase()?.includes(exclude)) return
       }
-      toast.warning('Torrent Warning', {description: '' + (detail.message || detail)})
+      toast.warning('Torrent Warning', { description: '' + (detail.message || detail) })
     }
   })
   client.on('info', ({ detail }) => {

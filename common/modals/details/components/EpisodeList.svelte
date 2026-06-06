@@ -73,7 +73,17 @@
 
   export let seasonFilter = 1  // For TMDB TV shows
 
+  export let localAvailability = null
+
   let mobileWaiting = null
+
+  function isLocallyAvailable(seasonNumber, episodeNumber) {
+    if (!localAvailability) return true
+    const season = Number(seasonNumber || 1)
+    const episode = Number(episodeNumber || 0)
+    if (!episode) return false
+    return !!localAvailability?.[season]?.availableEpisodes?.includes(episode)
+  }
 
   $: id = media.id
   $: idMal = media.idMal
@@ -117,7 +127,7 @@
         dubAiring: null,
         seasonNumber: episodeData?.seasonNumber || 1,
         episodeNumber: episodeData?.episodeNumber || episodeData.absoluteEpisodeNumber
-      }))
+      })).sort((a, b) => (a.episodeNumber || a.episode || 0) - (b.episodeNumber || b.episode || 0))
       return
     }
 
@@ -305,7 +315,7 @@
     {/each}
   {:then _}
     {#if episodeList}
-      {#each currentEpisodes as { zeroEpisode, episode, image, summary, rating, title, length, airdate, filler, dubAiring}, index}
+      {#each currentEpisodes as { zeroEpisode, episode, image, summary, rating, title, length, airdate, filler, dubAiring, seasonNumber, episodeNumber}, index}
         {#await Promise.all([title, filler, dubAiring, currentEpisodes[episodeOrder ? index - 1 : index + 1]?.dubAiring])}
           {#each Array.from({length: Math.min(episodeCount || 0, maxEpisodes)}) as _, index}
             <div class='w-full px-20 content-visibility-auto scale h-150' class:h-165={SUPPORTS.isAndroid} class:my-20={!mobileList || index !== 0}>
@@ -315,16 +325,22 @@
         {:then [title, filler, dubAiring, nextDubAiring]}
           {#if media?.status === 'FINISHED' || (episodeOrder ? (index === 0 || ((currentEpisodes[index - 1]?.airdate && (new Date(currentEpisodes[index - 1].airdate).getTime() <= new Date().getTime())) || (media?.status !== 'NOT_YET_RELEASED' && airdate && currentEpisodes[index - 1]?.airdate && (currentEpisodes[index - 1]?.airdate === airdate)) || (nextDubAiring?.airdate && new Date(nextDubAiring.airdate).getTime() === new Date(dubAiring.airdate).getTime()))) : (index === currentEpisodes.length - 1 || (currentEpisodes[index + 1]?.airdate && (new Date(currentEpisodes[index + 1]?.airdate).getTime() <= new Date().getTime())) || (currentEpisodes[index + 1]?.airdate && currentEpisodes[index + 1]?.airdate === airdate) || (nextDubAiring?.airdate && new Date(nextDubAiring.airdate).getTime() === new Date(dubAiring.airdate).getTime())))}
             {@const unreleased = media?.status !== 'FINISHED' && ((airdate && new Date(airdate).getTime() > new Date()) || (!airdate && media?.status === 'NOT_YET_RELEASED'))}
+            {@const unavailableLocal = !!localAvailability && !isLocallyAvailable(seasonNumber || seasonFilter || 1, episodeNumber || episode)}
             {@const completed = !watched && userProgress >= (episode + (zeroEpisode ? 1 : 0))}
             {@const target = userProgress + 1 === (episode + (zeroEpisode ? 1 : 0))}
             {@const hasFiller = filler?.filler || filler?.recap}
             {@const progress = !watched && ($animeProgress?.[episode] ?? 0)}
             {@const resolvedTitle = episodeList.filter((ep) => ep.episode < episode).some((ep) => matchPhrase(ep.title, title, 0.1, true)) ? null : title}
             {@const largeCard = image}
-            {@const resolvedHash = ($completedTorrents || $seedingTorrents || $stagingTorrents || $loadedTorrent) && getHash(media?.id, { episode, client: true, batchGuess: true }, false, true)}
+            {@const resolvedHash = !localAvailability && ($completedTorrents || $seedingTorrents || $stagingTorrents || $loadedTorrent) && getHash(media?.id, { episode, client: true, batchGuess: true }, false, true)}
             <div class='w-full content-visibility-auto scale my-20' class:load-in={!loadScroll} class:opacity-half={completed} class:scale-target={target} class:px-20={!target} class:px-10={target} class:h-150={!SUPPORTS.isAndroid && largeCard} class:h-165={SUPPORTS.isAndroid && largeCard}>
-              <div role='button' tabindex='0' class='episode-card rounded-2 w-full h-full overflow-hidden d-flex flex-xsm-column flex-row position-relative {unreleased ? `unreleased not-allowed` : `pointer`}' class:not-reactive={!$reactive} class:smallCard={!largeCard} class:android={SUPPORTS.isAndroid}  class:border={target || hasFiller} class:bg-black={completed} class:border-secondary={hasFiller} class:bg-dark-light={!completed} use:click={() => play(media, episode)} on:contextmenu|preventDefault={() => play(media, episode, true)}>
-                <div class="unreleased-overlay position-absolute top-0 left-0 right-0 h-full pointer-events-none rounded-2" class:d-none={!unreleased}/>
+              <div role='button' tabindex='0' class='episode-card rounded-2 w-full h-full overflow-hidden d-flex flex-xsm-column flex-row position-relative {unreleased || unavailableLocal ? `unreleased not-allowed` : `pointer`}' class:not-reactive={!$reactive} class:smallCard={!largeCard} class:android={SUPPORTS.isAndroid}  class:border={target || hasFiller} class:bg-black={completed} class:border-secondary={hasFiller} class:bg-dark-light={!completed} class:missing-local={unavailableLocal} use:click={() => { if (!(unreleased || unavailableLocal)) play(media, episode) }} on:contextmenu|preventDefault={() => { if (!(unreleased || unavailableLocal)) play(media, episode, true) }}>
+                <div class="unreleased-overlay position-absolute top-0 left-0 right-0 h-full pointer-events-none rounded-2" class:d-none={!(unreleased || unavailableLocal)}/>
+                {#if unavailableLocal}
+                  <div class='missing-local-label position-absolute top-0 left-0 right-0 z-1 d-flex justify-content-center pointer-events-none'>
+                    <span class='px-15 py-5 mt-10 rounded-pill text-white font-weight-semi-bold'>Local version not available</span>
+                  </div>
+                {/if}
                 {#if image}
                   <div class='d-flex'>
                     <SmartImage class='img-cover {!SUPPORTS.isAndroid ? `h-150` : `h-165`} w-full w-sm-265' images={[image, './404_episode.png']}/>
@@ -373,10 +389,16 @@
                     </div>
                   {/if}
                   <div class='font-size-12 overflow-hidden {(!completed && !progress) || !dubAiring ? `line-3 line-sm-4` : `line-2 line-sm-3`}' class:mb-10={!largeCard} class:summary={unreleased} class:font-weight-bold={unreleased}>
-                    {summary?.replace(/\s*\(?source:\s*[\s\S]+?\)?$/i, '') || ''}
+                    {#if unavailableLocal}
+                      Local version not available.
+                    {:else}
+                      {summary?.replace(/\s*\(?source:\s*[\s\S]+?\)?$/i, '') || ''}
+                    {/if}
                   </div>
                   <div class='font-size-12 mt-auto' class:mb-5={dubAiring} class:mb-10={!dubAiring}>
-                    {#if dubAiring}
+                    {#if unavailableLocal}
+                      Local version not available
+                    {:else if dubAiring}
                       <div class='d-flex flex-row date-row'>
                         <div class='mr-5 py-5 px-10 text-dark text-nowrap rounded-top rounded-left font-weight-bold' class:lg-label={image} class:bg-danger={dubAiring.delayed} class:bg-senary={!dubAiring.delayed}>
                           Dub: {dubAiring.text}
@@ -443,8 +465,18 @@
   .unreleased .summary {
     color: var(--accent-color);
   }
+  .missing-local {
+    filter: grayscale(95%) opacity(0.65);
+  }
+  .missing-local:hover, .missing-local:focus {
+    filter: grayscale(80%) opacity(0.82);
+  }
   .unreleased-overlay {
     background: repeating-linear-gradient(-45deg, hsla(var(--black-color-hsl), 0.3), hsla(var(--black-color-hsl), 0.3) 1rem, transparent 1rem, transparent 2rem);
+  }
+  .missing-local-label span {
+    background: rgba(15, 23, 42, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.12);
   }
   .opacity-half {
     opacity: 50%;

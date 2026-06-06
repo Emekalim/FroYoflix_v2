@@ -185,16 +185,16 @@ class AnilistClient {
     })
 
     if (this.userID?.viewer?.data?.Viewer) {
-      this.userLists.value = this.getUserLists({ sort: 'UPDATED_TIME_DESC'}, true)
+      this.userLists.value = this.getUserLists({ sort: 'UPDATED_TIME_DESC' }, true)
       setTimeout(async () => {
-        const updatedLists = await this.getUserLists({sort: 'UPDATED_TIME_DESC'})
+        const updatedLists = await this.getUserLists({ sort: 'UPDATED_TIME_DESC' })
         this.userLists.value = Promise.resolve(updatedLists) // no need to have userLists await the entire query process while we already have previous values, (it's awful to wait 15+ seconds for the query to succeed with large lists)
       })
       this.findNewNotifications().catch((error) => debug('Failed to get new anilist notifications at the scheduled interval, this is likely a temporary connection issue:', JSON.stringify(error)))
       // update userLists every 15 mins
       setInterval(async () => {
         try {
-          const updatedLists = await this.getUserLists({sort: 'UPDATED_TIME_DESC'})
+          const updatedLists = await this.getUserLists({ sort: 'UPDATED_TIME_DESC' })
           this.userLists.value = Promise.resolve(updatedLists) // no need to have userLists await the entire query process while we already have previous values, (it's awful to wait 15+ seconds for the query to succeed with large lists)
         } catch (error) {
           debug('Failed to update user lists at the scheduled interval, this is likely a temporary connection issue:', JSON.stringify(error))
@@ -245,8 +245,8 @@ class AnilistClient {
    * @param {string} query
    * @param {Record<string, any>} variables
    */
-  alRequest (query, variables) {
-    const vars =  {
+  alRequest(query, variables) {
+    const vars = {
       variables: {
         page: 1,
         perPage: 50,
@@ -254,7 +254,7 @@ class AnilistClient {
         ...variables
       }
     }
-    if (vars?.variables?.sort === 'OMIT') { delete vars.variables.sort}
+    if (vars?.variables?.sort === 'OMIT') { delete vars.variables.sort }
 
     /** @type {RequestInit} */
     const options = {
@@ -276,7 +276,7 @@ class AnilistClient {
   }
 
   /** @returns {Promise<import('./al.js').Query<{ Viewer: import('./al.js').Viewer }>>} */
-  viewer (variables = {}) {
+  viewer(variables = {}) {
     debug('Getting viewer')
     const query = /* js */` 
     query {
@@ -304,7 +304,7 @@ class AnilistClient {
       const res = await this.getNotifications()
       const notifications = res?.data?.Page?.notifications
       const lastNotified = cache.getEntry(caches.NOTIFICATIONS, 'lastAni')
-      const newNotifications = (lastNotified > 0) && notifications ? notifications.filter(({createdAt}) => createdAt > lastNotified) : []
+      const newNotifications = (lastNotified > 0) && notifications ? notifications.filter(({ createdAt }) => createdAt > lastNotified) : []
       debug(`Found ${newNotifications?.length} new notifications`)
       for (const { media, episode, type, createdAt } of newNotifications) {
         if ((settings.value.aniNotify !== 'limited' || type !== 'AIRING') && media.type === 'ANIME' && media.format !== 'MUSIC' && (!settings.value.preferDubs || (media?.status === 'FINISHED' && !['CURRENT', 'REPEATING']?.includes(media?.mediaListEntry?.status)) || !(await malDubs.isDubMedia(media)) || await isSubbedProgress(await cache.requestMedia(media?.id)))) {
@@ -321,10 +321,10 @@ class AnilistClient {
               format: media?.format,
               dub: false,
               click_action: (type === 'AIRING' ? 'PLAY' : 'VIEW'),
-              button: [{ text: 'View Anime', activation: `shiru://anime/${media?.id}` }],
+              button: [{ text: 'View Anime', activation: `froyo://anime/${media?.id}` }],
               activation: {
                 type: 'protocol',
-                launch: `shiru://anime/${media?.id}`
+                launch: `froyo://anime/${media?.id}`
               }
             }
           }))
@@ -536,7 +536,7 @@ class AnilistClient {
       data: {
         MediaListCollection: {
           lists: (await this.userLists.value)?.data?.MediaListCollection?.lists?.map(list => {
-            return {...list, entries: list.entries.filter(entry => entry.media.id !== mediaId)}
+            return { ...list, entries: list.entries.filter(entry => entry.media.id !== mediaId) }
           })
         }
       }
@@ -550,7 +550,7 @@ class AnilistClient {
    **/
   async alSearchCompound(flattenedTitles) {
     debug(`Searching for ${flattenedTitles?.length} titles via compound search`)
-    const cachedEntry = cache.cachedEntry(caches.COMPOUND, JSON.stringify(flattenedTitles),  status.value.match(/offline/i))
+    const cachedEntry = cache.cachedEntry(caches.COMPOUND, JSON.stringify(flattenedTitles), status.value.match(/offline/i))
     if (cachedEntry) return cachedEntry
 
     if (!flattenedTitles.length) return []
@@ -604,15 +604,15 @@ class AnilistClient {
       const titleObject = flattenedTitles[Number(variableName.slice(1))]
       if (searchResults[titleObject.key]) continue
       searchResults[titleObject.key] = media.map(media => getDistanceFromTitle(media, titleObject.title)).reduce((prev, curr) => prev.lavenshtein <= curr.lavenshtein ? prev : curr).id
-    // Convoluted and not as good as distance matching, better to return more than less.
-    //   if (searchResults[titleObject.key]) continue
-    //   for (const mediaItem of media) {
-    //     if (matchKeys(mediaItem, titleObject.title, ['title.userPreferred', 'title.english', 'title.romaji', 'title.native', 'synonyms'], titleObject.title.length > 15 ? 0.2 : titleObject.title.length > 9 ? 0.15 : 0.1)) {
-    //       searchResults[titleObject.key] = mediaItem.id
-    //       break
-    //     }
-    //   }
-    //   searchResults[titleObject.key] = !searchResults[titleObject.key] ? media.map(media => getDistanceFromTitle(media, titleObject.title)).reduce((prev, curr) => prev.lavenshtein <= curr.lavenshtein ? prev : curr).id : searchResults[titleObject.key]
+      // Convoluted and not as good as distance matching, better to return more than less.
+      //   if (searchResults[titleObject.key]) continue
+      //   for (const mediaItem of media) {
+      //     if (matchKeys(mediaItem, titleObject.title, ['title.userPreferred', 'title.english', 'title.romaji', 'title.native', 'synonyms'], titleObject.title.length > 15 ? 0.2 : titleObject.title.length > 9 ? 0.15 : 0.1)) {
+      //       searchResults[titleObject.key] = mediaItem.id
+      //       break
+      //     }
+      //   }
+      //   searchResults[titleObject.key] = !searchResults[titleObject.key] ? media.map(media => getDistanceFromTitle(media, titleObject.title)).reduce((prev, curr) => prev.lavenshtein <= curr.lavenshtein ? prev : curr).id : searchResults[titleObject.key]
     }
 
     const ids = Object.values(searchResults)
@@ -623,7 +623,7 @@ class AnilistClient {
 
   search(variables = {}) {
     if (settings.value.adult === 'none') variables.isAdult = false
-    if (settings.value.adult !== 'hentai' && (!variables.genre_not || !variables.genre_not.includes('Hentai'))) variables.genre_not = [ ...(variables.genre_not ? variables.genre_not : []), 'Hentai' ]
+    if (settings.value.adult !== 'hentai' && (!variables.genre_not || !variables.genre_not.includes('Hentai'))) variables.genre_not = [...(variables.genre_not ? variables.genre_not : []), 'Hentai']
 
     debug(`Searching ${JSON.stringify(variables)}`)
     const cachedEntry = cache.cachedEntry(caches.SEARCH, JSON.stringify(variables), status.value.match(/offline/i))
@@ -679,7 +679,7 @@ class AnilistClient {
     if (variables?.id?.length === 0) return
     variables.sort = variables.sort || 'OMIT'
     if (settings.value.adult === 'none') variables.isAdult = false
-    if (settings.value.adult !== 'hentai' && (!variables.genre_not || !variables.genre_not.includes('Hentai'))) variables.genre_not = [ ...(variables.genre_not ? variables.genre_not : []), 'Hentai' ]
+    if (settings.value.adult !== 'hentai' && (!variables.genre_not || !variables.genre_not.includes('Hentai'))) variables.genre_not = [...(variables.genre_not ? variables.genre_not : []), 'Hentai']
 
     debug(`Searching for IDs ${JSON.stringify(variables)}`)
     const cachedEntry = !variables.skipCache && cache.cachedEntry(caches.SEARCH_IDS, JSON.stringify(variables), status.value.match(/offline/i))
@@ -711,7 +711,7 @@ class AnilistClient {
   async searchAllIDS(variables) {
     variables.sort = variables.sort || 'OMIT'
     if (settings.value.adult === 'none') variables.isAdult = false
-    if (settings.value.adult !== 'hentai' && (!variables.genre_not || !variables.genre_not.includes('Hentai'))) variables.genre_not = [ ...(variables.genre_not ? variables.genre_not : []), 'Hentai' ]
+    if (settings.value.adult !== 'hentai' && (!variables.genre_not || !variables.genre_not.includes('Hentai'))) variables.genre_not = [...(variables.genre_not ? variables.genre_not : []), 'Hentai']
     debug(`Searching for (ALL) IDs ${JSON.stringify(variables)}`)
     const cachedEntry = !variables.skipCache && cache.cachedEntry(caches.SEARCH_IDS, JSON.stringify(variables), status.value.match(/offline/i))
     if (cachedEntry) return cachedEntry
@@ -719,13 +719,13 @@ class AnilistClient {
     let currentPage = 1
     let failedRes
     while (true) { // cycle until all paged ids are resolved.
-      const res = await this.searchIDS({ ...variables, page: currentPage, perPage: 50, ...( variables?.id && variables?.id?.length !== 0 ? { id: [...new Set(variables.id)] } : { idMal: [...new Set(variables.idMal)] }) })
+      const res = await this.searchIDS({ ...variables, page: currentPage, perPage: 50, ...(variables?.id && variables?.id?.length !== 0 ? { id: [...new Set(variables.id)] } : { idMal: [...new Set(variables.idMal)] }) })
       if (!res?.data && res?.errors) { failedRes = res }
       if (res?.data?.Page.media) fetchedIDS = fetchedIDS.concat(res?.data?.Page.media)
       if (!res?.data?.Page.pageInfo.hasNextPage) break
       currentPage++
     }
-    return cache.cacheEntry(caches.SEARCH_IDS, JSON.stringify(variables), { ...variables, ...(malClient.userID ? { fillLists: malClient.userLists.value } : {}) }, ({ ...(failedRes || failedRes?.errors ? {errors: failedRes?.errors ? failedRes.errors : failedRes} : {}), data: { Page: {  pageInfo: { hasNextPage: false }, media: fetchedIDS } } }), Date.now() + getRandomInt(34, 46) * 60 * 1000)
+    return cache.cacheEntry(caches.SEARCH_IDS, JSON.stringify(variables), { ...variables, ...(malClient.userID ? { fillLists: malClient.userLists.value } : {}) }, ({ ...(failedRes || failedRes?.errors ? { errors: failedRes?.errors ? failedRes.errors : failedRes } : {}), data: { Page: { pageInfo: { hasNextPage: false }, media: fetchedIDS } } }), Date.now() + getRandomInt(34, 46) * 60 * 1000)
   }
 
   /** @returns {Promise<import('./al.js').PagedQuery<{ airingSchedules: { airingAt: number, episode: number }[]}>>} */

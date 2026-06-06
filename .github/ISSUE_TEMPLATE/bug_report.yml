@@ -1,0 +1,102 @@
+name: Bug Report
+description: Unwanted behavior that was not intended or expected.
+labels: ["bug"]
+assignees: Emekalim
+body:
+  - type: dropdown
+    id: operating_system
+    attributes:
+      label: Operating System
+      description: The operating system you are running the app on.
+      options:
+        - Windows
+        - Linux (X11)
+        - Linux (Wayland)
+        - macOS (Intel)
+        - macOS (Apple Silicon)
+        - Android (arm64-v8a)
+        - Android (armeabi-v7a)
+        - Android (x86)
+        - Android (universal)
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: App Version
+      description: The version you're currently using (e.g., v6.0.0). Find this at the bottom of the settings menu, or on Android under Settings > App tab. Please provide the full version number, not "latest".
+      placeholder: v6.0.0
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: Bug Severity
+      description: How severely does this bug impact your use of the app?
+      options:
+        - Low
+        - Medium
+        - High
+        - Critical
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Describe The Bug
+      description: A clear and concise description of the bug you're experiencing.
+      placeholder: When I try to launch the app, it crashes immediately with an error message. I've tried reinstalling but the issue persists...
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Expected Behavior
+      description: A clear and concise description of what you expected to happen.
+      placeholder: The app should load normally and show the home page.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Steps To Reproduce
+      description: Detailed steps to reproduce this bug. Be as specific as possible.
+      placeholder: |
+        1. Open the app
+        2. Navigate to Settings > Interface
+        3. Toggle the 'Prefer Dubs' option
+        4. Return to home screen
+        5. Bug occurs: App crashes/freezes/shows error
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: What Have You Tried?
+      description: List any troubleshooting steps or solutions you've already attempted.
+      placeholder: I've tried reinstalling the app, clearing the cache, and restarting my device...
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Additional Context
+      description: Any other context or screenshots (highly recommended) about this request.
+    validations:
+      required: false
+
+  - type: checkboxes
+    attributes:
+      label: Checklist
+      description: Let's make sure this report is valid.
+      options:
+        - label: I am using the [latest stable](https://github.com/Emekalim/FroYoflix_v2/releases/latest) version of the app.
+          required: true
+        - label: I have searched the [frequently asked questions](https://github.com/Emekalim/FroYoflix_v2/wiki/faq) and did not find a fix.
+          required: true
+        - label: I have searched the [issue tracker](https://github.com/Emekalim/FroYoflix_v2/issues) and confirmed this bug has not been reported before.
+          required: true
+        - label: I ticked all of these boxes without actually reading them.
+          required: false
+        - label: I confirm that my issue is **legal and lawful**, and does not promote or link to piracy or copyrighted material.
+          required: true

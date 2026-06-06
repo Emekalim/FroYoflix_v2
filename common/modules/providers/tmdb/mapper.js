@@ -18,14 +18,21 @@ export default class TMDBMapper {
     
     return {
       id: String(data.id),
+      tmdbId: data.id,
+      source: 'TMDB',
+      format: mediaType === 'tv' ? 'TV' : 'MOVIE',
+      type: mediaType === 'tv' ? 'TV' : 'MOVIE',
+      mediaType,
       externalIds: {
         tmdb: data.id,
         imdb: data.imdb_id || externalIds.imdb_id,
         tvdb: externalIds.tvdb_id
       },
-      type: mediaType,
       title: {
+        userPreferred: mediaType === 'tv' ? data.name : data.title,
         english: mediaType === 'tv' ? data.name : data.title,
+        romaji: mediaType === 'tv' ? data.name : data.title,
+        native: mediaType === 'tv' ? data.name : data.title,
         default: mediaType === 'tv' ? data.name : data.title
       },
       description: data.overview,
@@ -34,13 +41,20 @@ export default class TMDBMapper {
       runtime: data.runtime || data.episode_run_time?.[0],
       episodeCount: mediaType === 'tv' ? data.number_of_episodes : null,
       seasonCount: mediaType === 'tv' ? data.number_of_seasons : null,
-      poster: data.poster_path 
+      seasons: mediaType === 'tv' ? (data.number_of_seasons || null) : null,
+      poster: data.poster_path
+        ? `https://image.tmdb.org/t/p/w342${data.poster_path}`
+        : null,
+      posterImage: data.poster_path
         ? `https://image.tmdb.org/t/p/w342${data.poster_path}`
         : null,
       banner: data.backdrop_path
         ? `https://image.tmdb.org/t/p/w780${data.backdrop_path}`
         : null,
-      userProgress: null  // TMDB doesn't track user progress
+      backdropImage: data.backdrop_path
+        ? `https://image.tmdb.org/t/p/w780${data.backdrop_path}`
+        : null,
+      userProgress: null
     }
   }
 

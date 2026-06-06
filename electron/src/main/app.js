@@ -1,5 +1,6 @@
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import process from 'node:process'
+import { createHash } from 'node:crypto'
 
 import { toXmlString } from 'powertoast'
 import { youtubeServer } from './youtube.js'
@@ -15,6 +16,8 @@ import Protocol from './protocol.js'
 import Updater from './updater.js'
 import Dialog from './dialog.js'
 import Debug from './debugger.js'
+import { Transcoder } from './transcoder.js'
+import { registerSearchEngineHandlers } from './search-engine/index.js'
 
 export default class App {
   icon = nativeImage.createFromPath(join(__dirname, process.platform === 'win32' ? '/icon_filled.ico' : '/icon_filled.png'))
@@ -36,11 +39,13 @@ export default class App {
     minHeight: 390,
     frame: process.platform === 'darwin',
     titleBarStyle: 'hidden',
-    ...(process.platform !== 'darwin' ? { titleBarOverlay: {
+    ...(process.platform !== 'darwin' ? {
+      titleBarOverlay: {
         color: 'rgba(47, 50, 65, 0)',
         symbolColor: '#eee',
         height: 28
-      } } : {}),
+      }
+    } : {}),
     backgroundColor: '#17191c',
     autoHideMenuBar: true,
     webPreferences: {
@@ -64,6 +69,7 @@ export default class App {
   close = false
   ready = false
   notifications = {}
+  transcoder = new Transcoder()
 
   constructor() {
     this.mainWindow.setMenuBarVisibility(false)
@@ -88,6 +94,11 @@ export default class App {
     }
     ipcMain.handle('electron:isMinimized', () => this.isMinimized)
     this.mainWindow.on('minimize', () => minimize(true))
+    // Start transcoding server
+    this.transcoder.start().then(port => {
+      console.log('[Main] Transcoder started on port:', port)
+    })
+    ipcMain.handle('get-transcoder-port', () => this.transcoder.port)
     this.mainWindow.on('hide', () => minimize(true))
     this.mainWindow.on('restore', () => minimize(false))
     this.mainWindow.on('show', () => minimize(false))
@@ -163,7 +174,7 @@ export default class App {
     })
 
     if (process.platform === 'win32') {
-      app.setAppUserModelId('com.github.rockinchaos.shiru')
+      app.setAppUserModelId('com.github.rockinchaos.froyo')
       // this message usually fires in dev-mode from the parent process
       process.on('message', data => {
         if (data === 'graceful-exit') this.destroy()
@@ -195,8 +206,8 @@ export default class App {
     this.mainWindow.webContents.on('render-process-gone', async (e, { reason }) => {
       if (reason === 'crashed') {
         if (++crashcount > 10) {
-          await dialog.showMessageBox({ message: 'Crashed too many times.', title: 'Shiru', detail: 'App crashed too many times. For a fix visit https://github.com/RockinChaos/Shiru/wiki/faq/', icon: '/renderer/public/icon_filled.png' })
-          shell.openExternal('https://github.com/RockinChaos/Shiru/wiki/faq/')
+          await dialog.showMessageBox({ message: 'Crashed too many times.', title: 'FroYo', detail: 'App crashed too many times. For a fix visit https://github.com/Emekalim/FroYoflix_v2/wiki/faq/', icon: '/renderer/public/icon_filled.png' })
+          shell.openExternal('https://github.com/Emekalim/FroYoflix_v2/wiki/faq/')
         } else {
           app.relaunch()
         }
@@ -261,7 +272,7 @@ export default class App {
           session.fromPartition(partitionName).clearStorageData()
         })
         authWindow.webContents.on('will-redirect', (event, url) => {
-          if (url.startsWith('shiru:')) {
+          if (url.startsWith('froyo:')) {
             event.preventDefault()
             authWindow.destroy()
             ipcMain.emit('handle-protocol', {}, url)
@@ -276,6 +287,187 @@ export default class App {
     ipcMain.on('quit-and-install', () => {
       if (this.updater.hasUpdate) this.destroy(true)
     })
+
+    // Folder scanner for local media search (recursive)
+    ipcMain.on('scan-folder', async (event, folderPath) => {
+      console.log(`[IPC] Received scan-folder request for: ${folderPath}`);
+
+      try {
+        const fs = await import('fs/promises')
+        const path = await import('path')
+
+        // Check if folder exists
+        try {
+          await fs.access(folderPath)
+          console.log(`[IPC] Folder exists and is accessible: ${folderPath}`)
+        } catch (err) {
+          console.error(`[IPC] Folder not accessible: ${folderPath}`, err.message)
+          event.sender.send('folder-scan-result', [])
+          return
+        }
+
+        // Recursive function to scan all subdirectories
+        async function scanDirectory(dirPath, maxDepth = 5, currentDepth = 0) {
+          const files = []
+
+          // Prevent infinite recursion
+          if (currentDepth >= maxDepth) {
+            console.log(`[Folder Scanner] Max depth reached at: ${dirPath}`)
+            return files
+          }
+
+          try {
+            const entries = await fs.readdir(dirPath, { withFileTypes: true })
+            console.log(`[Folder Scanner] Found ${entries.length} entries in ${dirPath} (depth ${currentDepth})`)
+
+            for (const entry of entries) {
+              const fullPath = path.join(dirPath, entry.name)
+
+              if (entry.isFile()) {
+                files.push({
+                  path: fullPath,
+                  name: entry.name
+                })
+              } else if (entry.isDirectory()) {
+                // Recursively scan subdirectories
+                try {
+                  const subFiles = await scanDirectory(fullPath, maxDepth, currentDepth + 1)
+                  files.push(...subFiles)
+                } catch (err) {
+                  // Skip directories we can't read (permissions, etc.)
+                  console.log(`[Folder Scanner] Skipping directory: ${fullPath} - ${err.message}`)
+                }
+              }
+            }
+          } catch (err) {
+            console.error(`[Folder Scanner] Error reading directory ${dirPath}:`, err.message)
+          }
+
+          return files
+        }
+
+        console.log(`[Folder Scanner] Starting scan of: ${folderPath}`)
+        const startTime = Date.now()
+        const files = await scanDirectory(folderPath)
+        const duration = Date.now() - startTime
+        console.log(`[Folder Scanner] Scan complete! Found ${files.length} files in ${duration}ms`)
+
+        event.sender.send('folder-scan-result', files)
+      } catch (error) {
+        console.error('[Folder Scanner] Error:', error)
+        event.sender.send('folder-scan-result', [])
+      }
+    })
+
+    ipcMain.handle('library:exists', async (_event, { path }) => {
+      try {
+        await fs.promises.access(path)
+        return true
+      } catch {
+        return false
+      }
+    })
+
+    ipcMain.handle('library:readText', async (_event, { path }) => {
+      if (!path) return null
+      try {
+        return await fs.promises.readFile(path, 'utf8')
+      } catch {
+        return null
+      }
+    })
+
+    ipcMain.handle('library:writeText', async (_event, { path, content = '' }) => {
+      if (!path) throw new Error('library:writeText requires path')
+      await fs.promises.mkdir(dirname(path), { recursive: true })
+      await fs.promises.writeFile(path, content, 'utf8')
+      return true
+    })
+
+    ipcMain.handle('library:scan', async (_event, { path: scanPath, recursive = true }) => {
+      const results = []
+      if (!scanPath) return results
+
+      const walk = async (targetPath) => {
+        let entries = []
+        try {
+          entries = await fs.promises.readdir(targetPath, { withFileTypes: true })
+        } catch {
+          return
+        }
+        for (const entry of entries) {
+          const fullPath = join(targetPath, entry.name)
+          let stats
+          try {
+            stats = await fs.promises.stat(fullPath)
+          } catch {
+            continue
+          }
+          const payload = {
+            path: fullPath,
+            name: entry.name,
+            type: entry.isDirectory() ? 'directory' : 'file',
+            size: stats.size,
+            mtime: stats.mtimeMs
+          }
+          results.push(payload)
+          if (recursive && entry.isDirectory()) await walk(fullPath)
+        }
+      }
+
+      await walk(scanPath)
+      return results
+    })
+
+    ipcMain.handle('library:move', async (_event, { src, dest }) => {
+      if (!src || !dest) throw new Error('library:move requires src and dest')
+      await fs.promises.mkdir(dirname(dest), { recursive: true })
+      try {
+        await fs.promises.rename(src, dest)
+      } catch (error) {
+        if (error?.code !== 'EXDEV') throw error
+        const tmpDest = `${dest}.tmp_froyo`
+        await fs.promises.copyFile(src, tmpDest)
+        const [srcStat, tmpStat] = await Promise.all([fs.promises.stat(src), fs.promises.stat(tmpDest)])
+        if (srcStat.size !== tmpStat.size) {
+          await fs.promises.rm(tmpDest, { force: true })
+          throw new Error(`Cross-device library move verification failed for ${src}`)
+        }
+        await fs.promises.rename(tmpDest, dest)
+        await fs.promises.rm(src, { force: true, recursive: true })
+      }
+      const stats = await fs.promises.stat(dest)
+      return { path: dest, size: stats.size, mtime: stats.mtimeMs }
+    })
+
+    ipcMain.handle('library:hash', async (_event, { path: filePath }) => {
+      if (!filePath) return null
+      const stats = await fs.promises.stat(filePath)
+      if (!stats.isFile()) return null
+      const handle = await fs.promises.open(filePath, 'r')
+      try {
+        const chunkSize = Math.min(1024 * 1024, Math.max(stats.size, 1))
+        const head = Buffer.alloc(chunkSize)
+        const tail = Buffer.alloc(chunkSize)
+        await handle.read(head, 0, chunkSize, 0)
+        const tailStart = Math.max(0, stats.size - chunkSize)
+        await handle.read(tail, 0, chunkSize, tailStart)
+        return createHash('sha1')
+          .update(String(stats.size))
+          .update(head)
+          .update(tail)
+          .digest('hex')
+      } finally {
+        await handle.close()
+      }
+    })
+
+    ipcMain.handle('library:extractSubtitles', async (_event, { path: filePath }) => {
+      if (!filePath) throw new Error('library:extractSubtitles requires path')
+      return this.transcoder.extractTextSubtitles(filePath)
+    })
+
+    registerSearchEngineHandlers(ipcMain)
   }
 
   makeWebTorrentWindow() {
@@ -306,7 +498,7 @@ export default class App {
             this.webtorrentWindow.removeAllListeners('closed')
             this.webtorrentWindow.destroy()
           }
-        } catch {}
+        } catch { }
         this.webtorrentWindow = this.makeWebTorrentWindow()
       }
       this.torrentLoad = this.webtorrentWindow.loadURL(development ? 'http://localhost:3000/background.html' : `file://${join(__dirname, '/background.html')}`)
@@ -314,7 +506,7 @@ export default class App {
       if (crashed) this.mainWindow.webContents.send('webtorrent-crashed')
       this.webtorrentWindow.on('closed', () => this.destroy())
       this.webtorrentWindow.webContents.on('render-process-gone', async (e, { reason }) => {
-       if (reason === 'crashed') this.setWebTorrentWindow(true)
+        if (reason === 'crashed') this.setWebTorrentWindow(true)
       })
     }
   }
@@ -329,6 +521,7 @@ export default class App {
     this.mainWindow.webContents?.closeDevTools?.()
     this.tray?.destroy()
     for (const timeout of this.timeouts) clearTimeout(timeout)
+    this.transcoder.stop()
     this.timeouts.clear()
     clearTimeout(this.stateTimeout)
     saveWindowState(this.mainWindow)
@@ -345,7 +538,7 @@ export default class App {
         })
         clearTimeout(resolveTimeout)
       }
-    } catch {} // WebTorrent crashed... prevents hanging infinitely.
+    } catch { } // WebTorrent crashed... prevents hanging infinitely.
     if (!this.updater.install(forceRunAfter)) app.quit()
   }
 
@@ -406,19 +599,19 @@ export default class App {
   }
   createTray() {
     if (this.destroyed) return
-    this.tray.setToolTip('Shiru')
+    this.tray.setToolTip('FroYo')
     this.setTrayMenu()
     this.tray.on('click', () => this.showAndFocus())
   }
   setTrayMenu() {
     if (this.destroyed || !this.tray || this.tray.isDestroyed()) return
     this.tray.setContextMenu(Menu.buildFromTemplate([
-      { label: 'Shiru', enabled: false },
+      { label: 'FroYo', enabled: false },
       ...(this.ready ? [
-          { type: 'separator' },
-          { label: 'Show', click: () => this.showAndFocus() },
-          { label: 'Restore', click: () => this.restoreWindow() }
-        ]
+        { type: 'separator' },
+        { label: 'Show', click: () => this.showAndFocus() },
+        { label: 'Restore', click: () => this.restoreWindow() }
+      ]
         : []),
       { type: 'separator' },
       { label: 'Quit', click: () => this.destroy() }

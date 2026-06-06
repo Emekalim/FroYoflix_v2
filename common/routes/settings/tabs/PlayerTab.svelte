@@ -150,6 +150,14 @@
     </div>
   </div>
 </SettingCard>
+<SettingCard title='Startup Buffer Threshold' description='How many seconds should be buffered before the built-in player starts playback. Set to 0 to start as soon as the media is ready.'>
+  <div class='input-group w-100 mw-full'>
+    <ClampedNumber bind:bindTo={settings.playerStartupBufferSeconds} min={0} max={300} step={1} class='form-control text-right bg-dark'/>
+    <div class='input-group-append'>
+      <span class='input-group-text bg-dark'>sec</span>
+    </div>
+  </div>
+</SettingCard>
 <SettingCard title='Chapter Source Preference' description='The chapter source to use during video playback. If your preferred source isn’t available, another source will be used automatically.'>
   <select class='form-control bg-dark mw-150 w-150 text-truncate' bind:value={settings.playerChapterSkip}>
     <option value='embedded' selected>Embedded</option>
@@ -164,7 +172,7 @@
 </SettingCard>
 
 <h4 class='mb-10 font-weight-bold'>External Player Settings</h4>
-<SettingCard title='Enable External Player' description='Tells Shiru to open a custom user-picked external video player to play video, instead of using the built-in one.'>
+<SettingCard title='Enable External Player' description='Tells FroYo to open a custom user-picked external video player to play video, instead of using the built-in one.'>
   <div class='custom-switch'>
     <input type='checkbox' id='player-external-enabled' bind:checked={settings.enableExternal} />
     <label for='player-external-enabled'>{settings.enableExternal ? 'On' : 'Off'}</label>

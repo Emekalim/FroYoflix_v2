@@ -10,14 +10,14 @@ export default class Discord {
       state: 'Enjoying an anime episode...',
       assets: {
         large_image: 'icon',
-        large_text: 'https://github.com/RockinChaos/Shiru',
+        largeImageText: 'https://github.com/Emekalim/FroYoflix_v2',
         small_image: 'sail',
-        small_text: 'Watching anime on Shiru'
+        small_text: 'Watching anime on FroYo'
       },
       buttons: [
         {
-          label: 'Download Shiru',
-          url: 'https://github.com/RockinChaos/Shiru/releases/latest'
+          label: 'Download FroYo',
+          url: 'https://github.com/Emekalim/FroYoflix_v2/releases/latest'
         }
       ],
       instance: true,
@@ -33,7 +33,7 @@ export default class Discord {
   cachedPresence
 
   /** @param {import('electron').BrowserWindow} window */
-  constructor (window) {
+  constructor(window) {
     ipcMain.on('discord', (event, data) => {
       this.cachedPresence = data
       this.debouncedDiscordRPC(this.enableRPC === 'full' ? this.cachedPresence : undefined, this.enableRPC === 'disabled')
@@ -66,11 +66,11 @@ export default class Discord {
     this.debouncedDiscordRPC = debounce((status, clearActivity) => this.setDiscordRPC(status, clearActivity), 4_500)
   }
 
-  loginRPC () {
+  loginRPC() {
     this.discord.login().catch(() => setTimeout(() => this.loginRPC(), 5_000).unref?.())
   }
 
-  setDiscordRPC (data = this.defaultStatus, clearActivity = false) {
+  setDiscordRPC(data = this.defaultStatus, clearActivity = false) {
     if (clearActivity) {
       if (this.discord?.user) this.discord.user.clearActivity(process.pid)
     } else if (this.discord.user && data && this.enableRPC !== 'disabled') {

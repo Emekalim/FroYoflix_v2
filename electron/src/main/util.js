@@ -46,13 +46,13 @@ app.setJumpList?.([
     items: [
       {
         type: 'task',
-        program: 'shiru://w2g/',
+        program: 'froyo://w2g/',
         title: 'Watch Together',
         description: 'Create a New Watch Together Lobby'
       },
       {
         type: 'task',
-        program: 'shiru://donate/',
+        program: 'froyo://donate/',
         title: 'Donate',
         description: 'Support This App'
       }

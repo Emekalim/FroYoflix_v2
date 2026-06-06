@@ -6,7 +6,9 @@ import { anitomyscript, getAniMappings, getMediaMaxEp } from '@/modules/anime/an
 import { checkForZero } from '@//components/MediaHandler.svelte'
 import { status } from '@/modules/networking.js'
 import { extensionManager } from '@/modules/extensions/manager.js'
-import AnimeResolver from '@/modules/anime/animeresolver.js'
+import MediaResolver from '@/modules/resolver/MediaResolver.js'
+import { searchWithBuiltInEngine, shouldUseBuiltInSearchEngine } from '@/modules/search-engine/index.js'
+import { determineBuiltInMediaType } from '@/modules/search-engine/query-builder.js'
 import Debug from 'debug'
 const debug = Debug('ui:extensions')
 
@@ -15,6 +17,7 @@ const debug = Debug('ui:extensions')
 
 const exclusions = []
 const isDev = location.hostname === 'localhost'
+const torrentIdentifierRx = /(^magnet:){1}|(^[A-F\d]{40}$){1}|(^https?:\/\/.+\.torrent(?:\?.*)?$){1}/i
 
 const video = document.createElement('video')
 if (!isDev) {
@@ -26,30 +29,31 @@ if (!isDev) {
 }
 video.remove()
 
+function isTorrentIdentifier(value) {
+  return torrentIdentifierRx.test(String(value || '').trim())
+}
+
+function createTorrentUri(hash, title) {
+  const safeHash = String(hash || '').trim().toLowerCase()
+  if (!/^[a-f\d]{40}$/i.test(safeHash)) return ''
+  if (!safeHash) return ''
+  return `magnet:?xt=urn:btih:${safeHash}&dn=${encodeURIComponent(title || safeHash)}`
+}
+
+function getCanonicalTorrentUri(result) {
+  if (isTorrentIdentifier(result?.uri)) return String(result.uri).trim()
+  if (isTorrentIdentifier(result?.link)) return String(result.link).trim()
+  if (result?.hash) return createTorrentUri(result.hash, result.title)
+  return ''
+}
+
 /**
  * Determines the media type based on media properties
  * @param {import('@/modules/al.js').Media} media - The media object to analyze
  * @returns {'anime' | 'tv' | 'movie'} - The determined media type
  */
 function determineMediaType(media) {
-  if (!media) return 'anime' // default to anime
-  
-  // If from TMDB source, check format field
-  if (media.source === 'TMDB') {
-    if (media.format === 'TV') return 'tv'
-    if (media.format === 'MOVIE') return 'movie'
-  }
-  
-  // If from AniList source, check format field
-  if (media.source === 'ANILIST' || !media.source) {
-    // Anime formats
-    if (['ANIME', 'OVA', 'ONA', 'SPECIAL'].includes(media.format)) return 'anime'
-    if (media.format === 'TV') return 'tv'
-    if (media.format === 'MOVIE') return 'movie'
-  }
-  
-  // Fallback: default to anime for unknown sources
-  return 'anime'
+  return determineBuiltInMediaType(media)
 }
 
 /**
@@ -57,10 +61,28 @@ function determineMediaType(media) {
  * @returns {Promise<Map<string, { name: string, icon?: string, promise: Promise<any> }>>}
  * Returns a Map of extension results keyed by extension id, each containing metadata and a result promise.
  */
-export async function getResultsFromExtensions({ media, episode, batch, movie, resolution }) {
+export async function getResultsFromExtensions({ media, episode, season, batch, movie, resolution }) {
+  if (shouldUseBuiltInSearchEngine(settings.value)) {
+    debug(`Using built-in desktop search engine for ${media?.id}:${media?.title?.userPreferred}`)
+    const builtInMap = await searchWithBuiltInEngine({ media, episode, season, batch, movie, resolution })
+    for (const [key, entry] of builtInMap) {
+      builtInMap.set(key, {
+        ...entry,
+        promise: entry.promise.then(async ({ results, errors }) => {
+          if (results?.length) {
+            const parseObjects = await anitomyscript(results.map(r => r.title))
+            results.forEach((r, i) => { r.parseObject = parseObjects[i] })
+          }
+          return { results: results ?? [], errors: errors ?? [] }
+        })
+      })
+    }
+    return builtInMap
+  }
+
   await extensionManager.whenReady.promise
   debug(`Fetching sources for ${media?.id}:${media?.title?.userPreferred} ${episode} ${batch} ${movie} ${resolution}`)
-  
+
   // Determine media type and fetch AniDB mapping if anime
   const mediaType = determineMediaType(media)
   const aniDBMeta = mediaType === 'anime' ? await ALToAniDB(media) : null
@@ -73,10 +95,10 @@ export async function getResultsFromExtensions({ media, episode, batch, movie, r
   if (media.id) ids.anilist = media.id
   if (media.idMal) ids.mal = media.idMal
   if (anidbAid) ids.anidb = anidbAid
-  if (media.imdbId) ids.imdb = media.imdbId
-  if (media.tmdbId) ids.tmdb = media.tmdbId
-  if (media.tvdbId) ids.tvdb = media.tvdbId
-  if (media.traktId) ids.trakt = media.traktId
+  if (media.imdbId || media.externalIds?.imdb) ids.imdb = media.imdbId || media.externalIds.imdb
+  if (media.tmdbId || media.externalIds?.tmdb) ids.tmdb = media.tmdbId || media.externalIds.tmdb
+  if (media.tvdbId || media.externalIds?.tvdb) ids.tvdb = media.tvdbId || media.externalIds.tvdb
+  if (media.traktId || media.externalIds?.trakt) ids.trakt = media.traktId || media.externalIds.trakt
 
   /** @type {Options} */
   const options = {
@@ -84,8 +106,8 @@ export async function getResultsFromExtensions({ media, episode, batch, movie, r
     mediaType,
     ids,
     year: media.startDate?.year,
-    season: media.season,
-    
+    season: season || media.season,
+
     // EXISTING FIELDS - Kept for compatibility
     anilistId: media.id,
     episodeCount: getMediaMaxEp(media),
@@ -148,7 +170,7 @@ export async function getResultsFromExtensions({ media, episode, batch, movie, r
 }
 
 const peerCache = new Map()
-export async function updatePeerCounts (entries) {
+export async function updatePeerCounts(entries) {
   const cacheKey = entries.map(({ hash }) => hash).sort().join(',')
   const cached = peerCache.get(cacheKey)
   if (cached && (((Date.now() - cached.timestamp) <= 90000) || status.value === 'offline')) {
@@ -160,7 +182,7 @@ export async function updatePeerCounts (entries) {
   debug(`Updating peer counts for ${entries?.length} entries`)
   const updated = await Promise.race([
     new Promise(resolve => {
-      function check (detail) {
+      function check(detail) {
         if (detail.id !== id) return
         debug('Got scrape response')
         WPC.clear('scrape_done', check)
@@ -186,7 +208,7 @@ export async function updatePeerCounts (entries) {
 }
 
 /** @param {import('@/modules/al.js').Media} media */
-async function ALToAniDB (media) {
+async function ALToAniDB(media) {
   const json = await getAniMappings(media?.id) || {}
   if (json.mappings?.anidb_id) return json
 
@@ -197,14 +219,14 @@ async function ALToAniDB (media) {
 }
 
 /** @param {import('@/modules/al.js').Media} media */
-function getParentForSpecial (media) {
+function getParentForSpecial(media) {
   if (!['SPECIAL', 'OVA', 'ONA'].some(format => media.format === format)) return false
   const animeRelations = media.relations.edges.filter(({ node }) => node.type === 'ANIME')
 
   return getRelation(animeRelations, 'PARENT') || getRelation(animeRelations, 'PREQUEL') || getRelation(animeRelations, 'SEQUEL')
 }
 
-function getRelation (list, type) {
+function getRelation(list, type) {
   return list.find(({ relationType }) => relationType === type)?.node.id
 }
 
@@ -213,7 +235,7 @@ function getRelation (list, type) {
  * @param {{media: import('@/modules/al.js').Media, episode: number}} param0
  * @param {{episodes: any, episodeCount: number, specialCount: number}} param1
  **/
-async function ALtoAniDBEpisode ({ media, episode }, { episodes, episodeCount, specialCount }) {
+async function ALtoAniDBEpisode({ media, episode }, { episodes, episodeCount, specialCount }) {
   debug(`Fetching AniDB episode for ${episode}:${media?.id}:${media?.title?.userPreferred}`)
   if (!isValidNumber(episode) || !Object.values(episodes).length) return
   // if media has no specials or their episode counts don't match
@@ -276,7 +298,7 @@ async function ALtoAniDBEpisode ({ media, episode }, { episodes, episodeCount, s
  * @param {any} episodes
  * @param {number} episode
  **/
-export function episodeByAirDate (alDate, episodes, episode) {
+export function episodeByAirDate(alDate, episodes, episode) {
   // TODO handle special cases where anilist reports that 3 episodes aired at the same time because of pre-releases
   if (!+alDate) return episodes[Number(episode)] || episodes[1] // what the fuck, are you braindead anilist?, the source episode number to play is from an array created from AL ep count, so how come it's missing?
   // 1 is key for episode 1, not index
@@ -301,7 +323,7 @@ export function episodeByAirDate (alDate, episodes, episode) {
 }
 
 /** @param {import('@/modules/al.js').Media} media */
-function createTitles (media) {
+function createTitles(media) {
   // group and de-duplicate
   const grouped = [...new Set(Object.values(media.title).concat(media.synonyms).filter(name => name != null && name.length > 3))]
   const titles = []
@@ -330,13 +352,15 @@ function createTitles (media) {
 }
 
 /** @param {Result[]} entries */
-export function dedupe (entries) {
+export function dedupe(entries) {
   /** @type {Record<string, Result>} */
   const deduped = {}
   for (const entry of entries) {
+    if (!normalizeResult(entry)) continue
     if (deduped[entry.hash] && !deduped[entry.hash]?.source?.managed) {
       const dupe = deduped[entry.hash]
-      dupe.title = AnimeResolver.cleanFileName(entry.title)
+      dupe.title = MediaResolver.cleanFileName(entry.title)
+      dupe.uri ||= entry.uri
       dupe.link = entry.link
       dupe.id ??= entry.id
       dupe.seeders ||= entry.seeders >= 30000 ? 0 : entry.seeders
@@ -347,7 +371,7 @@ export function dedupe (entries) {
       dupe.date ||= entry.date
       dupe.type ??= entry.type
     } else {
-      entry.title = AnimeResolver.cleanFileName(entry.title)
+      entry.title = MediaResolver.cleanFileName(entry.title)
       entry.seeders = entry.seeders && entry.seeders < 30000 ? entry.seeders : 0
       entry.leechers = entry.leechers && entry.leechers < 30000 ? entry.leechers : 0
       entry.downloads ||= 0
@@ -357,4 +381,79 @@ export function dedupe (entries) {
   }
 
   return Object.values(deduped)
+}
+
+/** @param {Result} result */
+function normalizeResult(result) {
+  result.uri = getCanonicalTorrentUri(result)
+  if (!result.uri) return false
+  if (!result.link) result.link = result.uri
+
+  // Normalize Size (handle string formatted sizes)
+  // If size is missing or empty, try to find an alias
+  if (!result.size) {
+    result.size = result.Size || result.filesize || result.size_bytes
+  }
+
+  if (typeof result.size === 'string') {
+    const match = result.size.match(/([\d.,]+)\s*([a-zA-Z]+)/)
+    if (match) {
+      const val = parseFloat(match[1].replace(',', '.'))
+      const unit = match[2].toLowerCase().replace(/i?b$/, '') // kb, mib -> k, m
+      const units = ['b', 'k', 'm', 'g', 't', 'p']
+      const power = units.indexOf(unit.charAt(0) === 'k' || unit.charAt(0) === 'm' || unit.charAt(0) === 'g' || unit.charAt(0) === 't' || unit.charAt(0) === 'p' ? unit.charAt(0) : 'b')
+      if (power > -1) {
+        result.size = val * Math.pow(1024, power)
+      }
+    }
+  } else if (typeof result.size !== 'number') {
+    // If it's not a number and not a parseable string, set to 0 to be safe
+    result.size = 0
+  }
+
+  // Normalize Date
+  if (!result.date) {
+    const date = result.Date || result.uploaded || result.added || result.time || result.DateUploaded
+    if (date) {
+      const parsed = new Date(date)
+      // Check for valid date AND that it's not the year 2001 (unless explicitly specified)
+      // "02-03 08:25" parses to year 2001 in some environments, which we want to avoid if it looks like MM-DD HH:mm
+      const is2001 = parsed.getFullYear() === 2001
+      const looksLikeTime = typeof date === 'string' && /^\d{2}-\d{2}\s\d{2}:\d{2}$/.test(date)
+
+      if (!isNaN(parsed.getTime()) && !is2001) result.date = parsed
+      else if (typeof date === 'string') {
+        // Handle "MM-DD HH:mm" -> append current year
+        if (looksLikeTime) {
+          const withYear = `${date} ${new Date().getFullYear()}`
+          const parsedWithYear = new Date(withYear)
+          if (!isNaN(parsedWithYear.getTime())) {
+            result.date = parsedWithYear
+            return
+          }
+        }
+
+        // Try parsing "MM-DD YYYY" or "DD-MM YYYY"
+        // Replace hyphens with slashes which are more universally supported
+        const slashDate = date.replace(/-/g, '/')
+        const parsedSlash = new Date(slashDate)
+        if (!isNaN(parsedSlash.getTime())) result.date = parsedSlash
+        else {
+          // Manual fallback for "MM-DD YYYY" (common in US-based indexers)
+          const parts = date.split(/[- ]/)
+          if (parts.length === 3) {
+            // Try M-D-Y
+            const mdy = new Date(`${parts[2]}-${parts[0]}-${parts[1]}`)
+            if (!isNaN(mdy.getTime())) result.date = mdy
+          }
+        }
+      }
+    }
+  }
+
+  // Normalize Peers
+  if (result.seeders === undefined && result.Seeders !== undefined) result.seeders = Number(result.Seeders)
+  if (result.leechers === undefined && result.Leechers !== undefined) result.leechers = Number(result.Leechers)
+  if (result.downloads === undefined && result.Downloads !== undefined) result.downloads = Number(result.Downloads)
+  return true
 }

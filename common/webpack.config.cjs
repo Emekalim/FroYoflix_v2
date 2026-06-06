@@ -1,10 +1,18 @@
 const { join, resolve } = require('path')
+const { DefinePlugin } = require('webpack')
 
 const mode = process.env.NODE_ENV?.trim() || 'development'
 const isDev = mode === 'development'
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const CopyWebpackPlugin = require('copy-webpack-plugin')
+
+// Load .env file if it exists
+try {
+  require('dotenv').config({ path: resolve(__dirname, '..', '.env') })
+} catch (e) {
+  console.warn('⚠️  dotenv not installed or .env file not found')
+}
 
 /** @type {(parentDir: string, alias?: Record<string, string>, aliasFields?: (string | string[]), filename?: string) => import('webpack').WebpackOptionsNormalized} */
 module.exports = (parentDir, alias = {}, aliasFields = 'browser', filename = 'app') => ({
@@ -65,6 +73,12 @@ module.exports = (parentDir, alias = {}, aliasFields = 'browser', filename = 'ap
     extensions: ['.mjs', '.js', '.svelte']
   },
   plugins: [
+    new DefinePlugin({
+      'process.env.TMDB_API_KEY': JSON.stringify(process.env.TMDB_API_KEY || ''),
+      'process.env.TRAKT_CLIENT_ID': JSON.stringify(process.env.TRAKT_CLIENT_ID || ''),
+      'process.env.TRAKT_ACCESS_TOKEN': JSON.stringify(process.env.TRAKT_ACCESS_TOKEN || ''),
+      'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development')
+    }),
     new MiniCssExtractPlugin({
       filename: '[name].css'
     }),
@@ -83,7 +97,7 @@ module.exports = (parentDir, alias = {}, aliasFields = 'browser', filename = 'ap
 <meta charset='utf-8'>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#17191C">
-<title>Shiru</title>
+<title>FroYo</title>
 
 <link rel="preconnect" href="https://i.ytimg.com">
 <link rel="preconnect" href="https://www.youtube-nocookie.com">

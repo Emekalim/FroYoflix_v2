@@ -14,11 +14,11 @@ export default class Updater {
    * @param {import('electron').BrowserWindow} window
    * @param {() => import('electron').BrowserWindow} torrentWindow
    */
-  constructor (window, torrentWindow) {
+  constructor(window, torrentWindow) {
     this.window = window
     this.torrentWindow = torrentWindow
     autoUpdater.autoInstallOnAppQuit = false
-    ipcMain.on('update', () => autoUpdater.checkForUpdates())
+    ipcMain.on('update', () => autoUpdater.checkForUpdates().catch(() => { }))
     autoUpdater.on('error', () => this.window.webContents.send('update-aborted'))
     autoUpdater.on('update-available', (info) => {
       if (!this.downloading) {
@@ -41,17 +41,18 @@ export default class Updater {
     })
   }
 
-  install (forceRunAfter = false) {
+  install(forceRunAfter = false) {
     if (this.hasUpdate && forceRunAfter) {
       setImmediate(() => {
         try {
           this.window.close()
           this.torrentWindow().close()
-        } catch (e) {}
+        } catch (e) { }
         clearInterval(this.downloadedInterval)
         autoUpdater.quitAndInstall(true, true)
       })
-      if (process.platform === 'darwin') shell.openExternal('https://github.com/RockinChaos/Shiru/releases/latest')
+      // For macOS, open the releases page in a browser as a fallback/alternative
+      if (process.platform === 'darwin') shell.openExternal('https://github.com/Emekalim/FroYoflix_v2/releases/latest')
       this.hasUpdate = false
       return true
     }

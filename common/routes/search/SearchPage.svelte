@@ -92,7 +92,25 @@
   onDestroy(() => {
     observer?.disconnect()
     window.removeEventListener('resize', updateRowMarkers)
-    if ($search.disableSearch) $search = { format: [], format_not: [], status: [], status_not: [] }
+    if ($search?.manualMatch === 'library') {
+      $key = {}
+      $search = {
+        search: '',
+        year: '',
+        season: '',
+        sort: '',
+        genre: [],
+        genre_not: [],
+        tag: [],
+        tag_not: [],
+        format: [],
+        format_not: [],
+        status: [],
+        status_not: []
+      }
+    } else if ($search.disableSearch) {
+      $search = { format: [], format_not: [], status: [], status_not: [] }
+    }
   })
 
   onMount(() => {
