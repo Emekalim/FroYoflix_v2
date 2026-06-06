@@ -55,6 +55,8 @@ This document tracks major feature implementations, architectural improvements, 
     -   Added dev-only updater test support through `electron/dev-app-update.yml` plus `FROYO_FORCE_DEV_UPDATES` / `FROYO_SIMULATE_DEV_UPDATE` overrides and the `electron/package.json` `start:update-test` script.
     -   Switched macOS release packaging to a universal updater ZIP to avoid architecture-specific checksum mismatches during desktop updates.
     -   Added release-note publishing automation so the `CHANGELOG.md` entry for each tag becomes the GitHub Release body consumed by FroYo's update dialog.
+    -   Moved macOS `ffmpeg` and `ffprobe` packaging off host-specific `node_modules` binaries and into a CI download + `lipo` assembly step so release builds bundle deterministic universal binaries.
+    -   Split macOS CI into an Intel x64 build job and an Apple Silicon arm64 build job, then merged those app bundles into the published universal release artifact.
 
 ---
 

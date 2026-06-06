@@ -26,6 +26,8 @@ git push origin vX.Y.Z
 CI fires automatically. Monitor at: https://github.com/Emekalim/FroYoflix_v2/actions
 
 After the Windows and macOS publish jobs finish, CI copies the matching `CHANGELOG.md` section into the GitHub Release body. FroYo's in-app update dialog reads those GitHub release notes directly.
+The macOS release path builds the x64 app on `macos-15-intel`, builds the arm64 app on `macos-latest`, merges those `.app` bundles into a universal app, and then publishes the final universal zip/update metadata.
+The macOS jobs also download pinned `ffmpeg` and `ffprobe` binaries during CI and assemble universal binaries before packaging, so the desktop app does not rely on host-arch `node_modules` binaries.
 
 ---
 

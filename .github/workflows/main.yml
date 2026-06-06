@@ -112,7 +112,54 @@ jobs:
 #          cd electron
 #          pnpm run publish
 
-  release-macos:
+  build-macos-x64:
+    runs-on: macos-15-intel
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v3
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install Setuptools for Python (macOS only)
+        run: pip3 install setuptools --break-system-packages
+
+      - name: Download macOS media binaries
+        run: ./scripts/download-macos-media-binaries.sh
+
+      - name: Install dependencies
+        run: |
+          cd electron
+          pnpm install --frozen-lockfile
+
+      - name: Build x64 app bundle
+        run: |
+          cd electron
+          pnpm run web:build
+          pnpm exec electron-builder --mac dir --x64 --publish never
+
+      - name: Archive x64 app bundle
+        run: |
+          mkdir -p artifacts
+          tar -C electron/dist/mac -czf artifacts/froyo-mac-x64-app.tar.gz FroYo.app
+
+      - name: Upload x64 app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: froyo-mac-x64-app
+          path: artifacts/froyo-mac-x64-app.tar.gz
+          if-no-files-found: error
+
+  build-macos-arm64:
     runs-on: macos-latest
 
     steps:
@@ -133,17 +180,88 @@ jobs:
       - name: Install Setuptools for Python (macOS only)
         run: pip3 install setuptools --break-system-packages
 
+      - name: Download macOS media binaries
+        run: ./scripts/download-macos-media-binaries.sh
+
       - name: Install dependencies
         run: |
           cd electron
           pnpm install --frozen-lockfile
 
-      - name: Build and Publish
+      - name: Build arm64 app bundle
+        run: |
+          cd electron
+          pnpm run web:build
+          pnpm exec electron-builder --mac dir --arm64 --publish never
+
+      - name: Archive arm64 app bundle
+        run: |
+          mkdir -p artifacts
+          tar -C electron/dist/mac-arm64 -czf artifacts/froyo-mac-arm64-app.tar.gz FroYo.app
+
+      - name: Upload arm64 app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: froyo-mac-arm64-app
+          path: artifacts/froyo-mac-arm64-app.tar.gz
+          if-no-files-found: error
+
+  release-macos:
+    runs-on: macos-latest
+    needs:
+      - build-macos-x64
+      - build-macos-arm64
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v3
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Download macOS media binaries
+        run: ./scripts/download-macos-media-binaries.sh
+
+      - name: Install dependencies
+        run: |
+          cd electron
+          pnpm install --frozen-lockfile
+
+      - name: Download x64 app bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: froyo-mac-x64-app
+          path: artifacts
+
+      - name: Download arm64 app bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: froyo-mac-arm64-app
+          path: artifacts
+
+      - name: Extract app bundles
+        run: |
+          mkdir -p merge/x64 merge/arm64
+          tar -C merge/x64 -xzf artifacts/froyo-mac-x64-app.tar.gz
+          tar -C merge/arm64 -xzf artifacts/froyo-mac-arm64-app.tar.gz
+
+      - name: Merge universal app
+        run: node scripts/merge-macos-universal.mjs merge/x64/FroYo.app merge/arm64/FroYo.app electron/dist/mac-universal/FroYo.app
+
+      - name: Package and publish universal zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd electron
-          pnpm run publish
+          pnpm exec electron-builder --mac zip --universal --prepackaged dist/mac-universal/FroYo.app -p always
 
   publish-release-notes:
     runs-on: ubuntu-latest
