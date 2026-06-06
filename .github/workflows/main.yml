@@ -268,6 +268,8 @@ jobs:
     needs:
       - release-windows
       - release-macos
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
 
     steps:
       - name: Check out Git repository
@@ -278,14 +280,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Resolve release version
-        id: release-version
-        run: echo "value=$(node -p 'require(\"./electron/package.json\").version')" >> "$GITHUB_OUTPUT"
-
       - name: Extract release notes from changelog
-        run: node scripts/extract-release-notes.mjs "${{ steps.release-version.outputs.value }}" > release-notes.md
+        run: node scripts/extract-release-notes.mjs "${RELEASE_TAG#v}" > release-notes.md
 
       - name: Update GitHub release notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "v${{ steps.release-version.outputs.value }}" --notes-file release-notes.md
+        run: gh release edit "$RELEASE_TAG" --notes-file release-notes.md
