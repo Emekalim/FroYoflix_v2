@@ -2,12 +2,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { makeUniversalApp } from "@electron/universal";
 
-const [x64AppPath, arm64AppPath, outAppPath] = process.argv.slice(2);
+const [x64AppPathArg, arm64AppPathArg, outAppPathArg] = process.argv.slice(2);
 
-if (!x64AppPath || !arm64AppPath || !outAppPath) {
+if (!x64AppPathArg || !arm64AppPathArg || !outAppPathArg) {
   console.error("Usage: node scripts/merge-macos-universal.mjs <x64-app> <arm64-app> <out-app>");
   process.exit(1);
 }
+
+const x64AppPath = path.resolve(x64AppPathArg);
+const arm64AppPath = path.resolve(arm64AppPathArg);
+const outAppPath = path.resolve(outAppPathArg);
 
 for (const appPath of [x64AppPath, arm64AppPath]) {
   if (!fs.existsSync(appPath)) {
