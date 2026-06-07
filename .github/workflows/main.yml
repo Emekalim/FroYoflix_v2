@@ -80,7 +80,14 @@ jobs:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
           cd electron
-          pnpm run publish
+          pnpm run web:build
+          pnpm exec electron-builder --win --publish never
+          gh release upload "${GITHUB_REF_NAME}" \
+            "dist/win-FroYo-v${GITHUB_REF_NAME#v}-installer.exe" \
+            "dist/win-FroYo-v${GITHUB_REF_NAME#v}-installer.exe.blockmap" \
+            "dist/win-FroYo-v${GITHUB_REF_NAME#v}-portable.exe" \
+            "dist/latest.yml" \
+            --clobber
 #
 #  release-linux:
 #    runs-on: ubuntu-latest
@@ -261,7 +268,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd electron
-          pnpm exec electron-builder --mac zip --universal --prepackaged dist/mac-universal/FroYo.app -p always
+          pnpm exec electron-builder --mac zip --universal --prepackaged dist/mac-universal/FroYo.app -p never
+          gh release upload "${GITHUB_REF_NAME}" \
+            "dist/mac-FroYo-v${GITHUB_REF_NAME#v}.zip" \
+            "dist/mac-FroYo-v${GITHUB_REF_NAME#v}.zip.blockmap" \
+            "dist/latest-mac.yml" \
+            --clobber
 
   publish-release-notes:
     runs-on: ubuntu-latest
