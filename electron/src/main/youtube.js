@@ -25,25 +25,29 @@ import http from 'http'
  * - Only needed because Electron production uses file:// protocol
  */
 
+const YOUTUBE_DIRECT_ORIGIN = 'https://www.youtube-nocookie.com'
 const pendingResponses = new Map()
-export const youtubeServer = !development ? http.createServer((req, res) => {
-  const url = new URL(req.url, `http://localhost`)
-  if (url.pathname === '/loaded') {
-    const responseId = url.searchParams.get('id')
-    const pendingRes = pendingResponses.get(responseId)
-    if (pendingRes) {
-      pendingRes.end('</body></html>')
-      pendingResponses.delete(responseId)
+let youtubeOrigin = YOUTUBE_DIRECT_ORIGIN
+
+export const youtubeServer = !development
+  ? http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1')
+    if (url.pathname === '/loaded') {
+      const responseId = url.searchParams.get('id')
+      const pendingRes = pendingResponses.get(responseId)
+      if (pendingRes) {
+        pendingRes.end('</body></html>')
+        pendingResponses.delete(responseId)
+      }
+      res.end('ok')
+      return
     }
-    res.end('ok')
-    return
-  }
-  const pathParts = url.pathname.split('/').filter(Boolean)
-  const videoId = pathParts[pathParts.length - 1]
-  const params = url.searchParams.toString()
-  const responseId = String(Date.now() + Math.random())
-  res.writeHead(200, { 'Content-Type': 'text/html', 'Referrer-Policy': 'strict-origin-when-cross-origin' })
-  res.write(`<!DOCTYPE html>
+    const pathParts = url.pathname.split('/').filter(Boolean)
+    const videoId = pathParts[pathParts.length - 1]
+    const params = url.searchParams.toString()
+    const responseId = String(Date.now() + Math.random())
+    res.writeHead(200, { 'Content-Type': 'text/html', 'Referrer-Policy': 'strict-origin-when-cross-origin' })
+    res.write(`<!DOCTYPE html>
 <html lang='en'>
 <head>
   <meta charset='UTF-8'>
@@ -56,15 +60,32 @@ export const youtubeServer = !development ? http.createServer((req, res) => {
 </head>
 <body>
   <iframe
-    src='https://www.youtube-nocookie.com/embed/${videoId}?${params}'
+    src='${YOUTUBE_DIRECT_ORIGIN}/embed/${videoId}?${params}'
     allow='autoplay'
     allowFullScreen
     referrerpolicy='strict-origin-when-cross-origin'
     onload="fetch('/loaded?id=${responseId}')"
   ></iframe>`)
-  pendingResponses.set(responseId, res)
-  req.on('close', () => pendingResponses.delete(responseId))
-}) : {}
+    pendingResponses.set(responseId, res)
+    req.on('close', () => pendingResponses.delete(responseId))
+  })
+  : null
 
-youtubeServer?.listen?.(0, 'localhost', () => console.log(`YouTube server running on http://localhost:${youtubeServer.address().port}`))
-ipcMain.handle('electron:getYouTube', () => development ? 'https://www.youtube-nocookie.com' : `http://localhost:${youtubeServer.address().port}`)
+youtubeServer?.on?.('error', (error) => {
+  console.error('YouTube server failed to start, falling back to direct embeds.', error)
+  youtubeOrigin = YOUTUBE_DIRECT_ORIGIN
+})
+
+youtubeServer?.listen?.(0, '127.0.0.1', () => {
+  const address = youtubeServer.address()
+  if (!address || typeof address === 'string') {
+    console.warn('YouTube server started without a numeric port, falling back to direct embeds.')
+    youtubeOrigin = YOUTUBE_DIRECT_ORIGIN
+    return
+  }
+
+  youtubeOrigin = `http://127.0.0.1:${address.port}`
+  console.log(`YouTube server running on ${youtubeOrigin}`)
+})
+
+ipcMain.handle('electron:getYouTube', () => youtubeOrigin)

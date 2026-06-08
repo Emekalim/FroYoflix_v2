@@ -3,6 +3,17 @@
 All notable changes to FroYo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [1.0.2.1] - 2026-06-08
+
+### Improved
+
+- Desktop updates on macOS now fall back to downloading the release ZIP directly when the app is still unsigned, so you can replace the app manually instead of hitting a failed in-app install.
+
+### Fixed
+
+- Fixed a production desktop crash where YouTube playback could fail if the local embed helper server had not finished binding to a port yet.
+- Fixed release reruns on existing tags so mac assets can be replaced instead of being silently skipped by the publish step.
+
 ## [1.0.2] - 2026-06-06
 
 ### Added
