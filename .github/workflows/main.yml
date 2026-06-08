@@ -150,6 +150,8 @@ jobs:
           pnpm install --frozen-lockfile
 
       - name: Build x64 app bundle
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
           cd electron
           pnpm run web:build
@@ -197,6 +199,8 @@ jobs:
           pnpm install --frozen-lockfile
 
       - name: Build arm64 app bundle
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
           cd electron
           pnpm run web:build
