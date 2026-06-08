@@ -3,7 +3,7 @@
 All notable changes to FroYo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
-## [1.0.2.1] - 2026-06-08
+## [1.0.3] - 2026-06-08
 
 ### Improved
 
