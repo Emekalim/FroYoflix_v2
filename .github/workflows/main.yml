@@ -264,6 +264,15 @@ jobs:
       - name: Merge universal app
         run: node scripts/merge-macos-universal.mjs merge/x64/FroYo.app merge/arm64/FroYo.app electron/dist/mac-universal/FroYo.app
 
+      - name: Ensure GitHub release exists
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes ""
+
       - name: Package and publish universal zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
