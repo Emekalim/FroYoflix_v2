@@ -4,6 +4,7 @@ import { settings } from '@/modules/settings.js'
 import { cache, caches } from '@/modules/cache.js'
 import { SUPPORTS } from '@/modules/support.js'
 import { status } from '@/modules/networking.js'
+import { resetPlaybackSession } from '@/modules/playback/session.js'
 import { writable } from 'simple-store-svelte'
 import { toast } from 'svelte-sonner'
 import clipboard from '@/modules/clipboard.js'
@@ -44,7 +45,7 @@ class TorrentWorker extends EventTarget {
         this.port.onmessage(this.handleMessage.bind(this))
         resolve()
       })
-      _settings = { userID: cache.cacheID, dht: !settings.value.torrentDHT, torrentUTP: !settings.value.torrentUTP, torrentPeX: !settings.value.torrentPeX, maxConns: settings.value.maxConns, downloadLimit: (settings.value.torrentSpeed * 1048576) || 0, uploadLimit: (settings.value.torrentSpeed * 1048576) || 0, torrentPort: settings.value.torrentPort || 0, dhtPort: settings.value.dhtPort || 0, torrentPersist: settings.value.torrentPersist, torrentStreamedDownload: settings.value.torrentStreamedDownload, torrentPathNew: settings.value.torrentPathNew, playerPath: settings.value.playerPath, seedingLimit: settings.value.seedingLimit, trackers: settings.value.trackers }
+      _settings = { userID: cache.cacheID, dht: !settings.value.torrentDHT, torrentUTP: !settings.value.torrentUTP, torrentPeX: !settings.value.torrentPeX, maxConns: settings.value.maxConns, downloadLimit: (settings.value.torrentSpeed * 1048576) || 0, uploadLimit: (settings.value.torrentSpeed * 1048576) || 0, torrentPort: settings.value.torrentPort || 0, dhtPort: settings.value.dhtPort || 0, torrentPersist: settings.value.torrentPersist, torrentStreamedDownload: settings.value.torrentStreamedDownload, torrentPathNew: settings.value.torrentPathNew, seedingLimit: settings.value.seedingLimit, trackers: settings.value.trackers }
       IPC.emit('portRequest', _settings)
     })
   }
@@ -69,7 +70,7 @@ setupTorrentClient()
 
 status.subscribe(value => client.send('networking', value))
 settings.subscribe(value => {
-  let settingsVal = { userID: cache.cacheID, dht: !value.torrentDHT, torrentUTP: !value.torrentUTP, torrentPeX: !value.torrentPeX, maxConns: value.maxConns, downloadLimit: (value.torrentSpeed * 1048576) || 0, uploadLimit: (value.torrentSpeed * 1048576) || 0, torrentPort: value.torrentPort || 0, dhtPort: value.dhtPort || 0, torrentPersist: value.torrentPersist, torrentStreamedDownload: value.torrentStreamedDownload, torrentPathNew: value.torrentPathNew, playerPath: value.playerPath, seedingLimit: value.seedingLimit, trackers: value.trackers }
+  let settingsVal = { userID: cache.cacheID, dht: !value.torrentDHT, torrentUTP: !value.torrentUTP, torrentPeX: !value.torrentPeX, maxConns: value.maxConns, downloadLimit: (value.torrentSpeed * 1048576) || 0, uploadLimit: (value.torrentSpeed * 1048576) || 0, torrentPort: value.torrentPort || 0, dhtPort: value.dhtPort || 0, torrentPersist: value.torrentPersist, torrentStreamedDownload: value.torrentStreamedDownload, torrentPathNew: value.torrentPathNew, seedingLimit: value.seedingLimit, trackers: value.trackers }
   if (JSON.stringify(_settings) !== JSON.stringify(settingsVal)) {
     _settings = settingsVal
     client.send('settings', _settings)
@@ -89,6 +90,7 @@ IPC.on('webtorrent-crashed', () => {
 window.addEventListener('torrent-unload', () => {
   files.value = []
   media.value = { ...media.value, display: true } // set display to true to allow the 'Last Watched' button to remain on the SideBar.
+  resetPlaybackSession()
   client.send('unload', null) // this will not override the cached loadedTorrent, we rely on users to enable disableStartupTorrent if they don't want to load the previous torrent when the app starts.
 })
 window.addEventListener('add', (event) => add(event.detail.resolvedHash, event.detail.search, event.detail.resolvedHash))
@@ -126,7 +128,7 @@ export async function add(torrentID, search, hash, magnet, base64 = false) {
     page.navigateTo(page.PLAYER)
     media.value = search ? { media: (search.media || media.value?.media), episode: (search.episode || media.value?.episode), ...(media.value?.torrent ? { torrent: true } : { feed: true }) } : { torrent: true }
     if (hash && search) setHash(hash, { mediaId: search.media?.id, episode: search.episode, client: true })
-    if (SUPPORTS.isAndroid && !settings.value.enableExternal) document.querySelector('.content-wrapper').requestFullscreen() // this WILL not work with auto-select torrents due to permissions check.
+    if (SUPPORTS.isAndroid) document.querySelector('.content-wrapper').requestFullscreen() // this WILL not work with auto-select torrents due to permissions check.
     client.send('torrent', { id: torrentID, hash: (hash === torrentID && torrentID) || false, magnet, base64 })
   }
 }
@@ -208,8 +210,8 @@ function setupTorrentClient() {
   }
   client.send('complete_all', cache.getEntry(caches.GENERAL, 'completedTorrents').filter(Boolean))
 
-  for (const event of ['magnet', 'stats', 'chapters', 'progress', 'externalReady', 'externalWatched', 'androidExternal', 'scrape_done', 'rescan_done']) client.on(event, ({ detail }) => WPC.send(event, detail))
-  for (const event of ['current', 'scrape', 'externalPlay', 'debug']) WPC.listen(event, (detail) => client.send(event, detail))
+  for (const event of ['magnet', 'stats', 'chapters', 'progress', 'scrape_done', 'rescan_done']) client.on(event, ({ detail }) => WPC.send(event, detail))
+  for (const event of ['current', 'scrape', 'debug']) WPC.listen(event, (detail) => client.send(event, detail))
 
   // external player for android
   client.on('open', ({ detail }) => {

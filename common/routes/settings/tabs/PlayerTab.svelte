@@ -4,10 +4,8 @@
   import ClampedNumber from '@/components/inputs/ClampedNumber.svelte'
   import SettingCard from '@/routes/settings/components/SettingCard.svelte'
   import { playPage } from '@/modules/navigation.js'
-  import { SUPPORTS } from '@/modules/support.js'
   import { click } from '@/modules/click.js'
-  import { IPC } from '@/modules/bridge.js'
-  import { Trash2, Eraser } from 'lucide-svelte'
+  import { Trash2 } from 'lucide-svelte'
   export let settings
 
   async function changeFont ({ detail }) {
@@ -29,9 +27,6 @@
   }
   function removeFont () {
     settings.font = null
-  }
-  function handleExecutable () {
-    IPC.emit('player')
   }
   $: if (!settings.missingFont) removeFont()
 </script>
@@ -170,24 +165,3 @@
     <label for='player-skip'>{settings.playerSkip ? 'On' : 'Off'}</label>
   </div>
 </SettingCard>
-
-<h4 class='mb-10 font-weight-bold'>External Player Settings</h4>
-<SettingCard title='Enable External Player' description='Tells FroYo to open a custom user-picked external video player to play video, instead of using the built-in one.'>
-  <div class='custom-switch'>
-    <input type='checkbox' id='player-external-enabled' bind:checked={settings.enableExternal} />
-    <label for='player-external-enabled'>{settings.enableExternal ? 'On' : 'Off'}</label>
-  </div>
-</SettingCard>
-{#if SUPPORTS.externalPlayer}
-  <SettingCard title='External Video Player' description='Executable for an external video player. Make sure the player supports HTTP sources.'>
-    <div class='input-group mw-100 w-400 mw-full'>
-      <div class='input-group-prepend'>
-        <button type='button' use:click={handleExecutable} class='btn btn-primary input-group-append d-flex align-items-center justify-content-center'><span>Select Executable</span></button>
-      </div>
-      <input type='url' class='form-control bg-dark text-truncate mw-100' readonly value={settings.playerPath} placeholder='Choose an executable…' />
-      <div class='input-group-prepend'>
-        <button type='button' use:click={() => settings.playerPath = ''} disabled={!settings.playerPath} class='btn btn-danger btn-square input-group-append px-5 d-flex align-items-center' title='Reset Location'><Eraser size='1.8rem' /></button>
-      </div>
-    </div>
-  </SettingCard>
-{/if}

@@ -1,5 +1,6 @@
 import libraryRepository from '@/modules/library/LibraryRepository.js'
 import { modal } from '@/modules/navigation.js'
+import { createLibraryPlaybackSource } from '@/modules/playback/source.js'
 
 function getEpisodeNumbers(item) {
   const first = Number(item?.episodeRange?.first || 0)
@@ -160,16 +161,23 @@ export function playLibraryItem(item) {
     }
   }
 
-  window.dispatchEvent(
-    new CustomEvent('play-library-file', {
-      detail: {
-        fileObject,
-        nowPlaying: {
-          media,
-          episode: item.episode,
-          season: item.season,
-          parseObject: fileObject.media.parseObject
+  const source = createLibraryPlaybackSource(fileObject, {
+    media,
+    episode: item.episode,
+    season: item.season,
+    parseObject: fileObject.media.parseObject,
+    resume: item?.watch?.positionSec
+      ? {
+          currentTime: item.watch.positionSec,
+          duration: item.watch.durationSec || 0
         }
+      : null
+  })
+
+  window.dispatchEvent(
+    new CustomEvent('playback-source', {
+      detail: {
+        source
       }
     })
   )

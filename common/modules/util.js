@@ -623,8 +623,6 @@ export const defaults = {
   extensionSources: {},
   useBuiltInSearchEngine: true,
   disableMiniplayer: false,
-  enableExternal: false,
-  playerPath: '',
   playerSeek: 2,
   playerStartupBufferSeconds: 30,
   playerSkip: false,

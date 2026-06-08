@@ -9,6 +9,5 @@ export const SUPPORTS = {
   keybinds: false,
   isAndroid: true,
   maxSeeding: 10,
-  externalPlayer: false,
   permamentNAT: false // no way of safely closing app
 }

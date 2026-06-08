@@ -16,6 +16,15 @@
     updatePlayerStartup,
   } from "@/modules/playerStartup.js";
   import {
+    beginBuiltinPlayback,
+    playbackSession,
+  } from "@/modules/playback/session.js";
+  import {
+    createLibraryPlaybackSource,
+    createTorrentPlaybackSource,
+    getNowPlayingSnapshot,
+  } from "@/modules/playback/source.js";
+  import {
     getKitsuMappings,
     hasZeroEpisode,
     getAniMappings,
@@ -65,6 +74,25 @@
   const noop = () => {};
 
   let playFile;
+
+  function syncNowPlaying(source) {
+    nowPlaying.set(getNowPlayingSnapshot(source));
+  }
+
+  function syncProcessedEntries(source) {
+    const entries = [source.file, ...(source.subtitles || [])].filter(Boolean);
+    processedFiles.set(entries);
+    processed.set(entries);
+  }
+
+  function updateActiveSource(source) {
+    playbackSession.set({
+      ...playbackSession.value,
+      source,
+    });
+    syncNowPlaying(source);
+    return source;
+  }
 
   async function ensureExtractedSubtitleFiles(fileObject, startupId = null) {
     if (!window.IPC?.invoke || !fileObject?.path || !fileObject?.libraryItemId) {
@@ -145,33 +173,36 @@
     return existingFiles;
   }
 
-  async function playLocalFileEntry(fileObject, nowPlayingData = {}) {
+  async function playLocalFileEntry(source) {
+    if (!source?.file) return;
     const startupId = beginPlayerStartup({
       label: "Opening player",
       detail: "Preparing local playback",
       progress: 8,
     });
     try {
-      nowPlaying.set(nowPlayingData);
-      const entries = [fileObject, ...(fileObject.subtitleFiles || [])];
-      processedFiles.set(entries);
-      processed.set(entries);
+      beginBuiltinPlayback(source);
+      syncNowPlaying(source);
+      syncProcessedEntries(source);
       page.navigateTo(page.PLAYER);
       await tick();
       updatePlayerStartup({
         id: startupId,
         label: "Loading video",
-        detail: fileObject?.name || "Preparing stream",
+        detail: source.file?.name || "Preparing stream",
         progress: 18,
       });
-      playFile(fileObject);
+      playFile(source.file);
 
-      ensureExtractedSubtitleFiles(fileObject, startupId)
+      ensureExtractedSubtitleFiles(source.file, startupId)
         .then((subtitleFiles) => {
-          if (processedFiles.value?.[0]?.path !== fileObject?.path) return;
-          const updatedEntries = [fileObject, ...(subtitleFiles || [])];
-          processedFiles.set(updatedEntries);
-          processed.set(updatedEntries);
+          if (processedFiles.value?.[0]?.path !== source.file?.path) return;
+          updateActiveSource({
+            ...playbackSession.value.source,
+            file: source.file,
+            subtitles: subtitleFiles || [],
+          });
+          syncProcessedEntries(playbackSession.value.source);
         })
         .catch((error) =>
           console.error("[MediaHandler] Failed to finish subtitle extraction:", error),
@@ -185,10 +216,10 @@
     }
   }
 
-  window.addEventListener("play-library-file", (event) => {
+  window.addEventListener("playback-source", (event) => {
     const detail = event.detail;
-    if (!detail?.fileObject) return;
-    playLocalFileEntry(detail.fileObject, detail.nowPlaying || {}).catch((error) =>
+    if (!detail?.source?.file) return;
+    playLocalFileEntry(detail.source).catch((error) =>
       console.error("[MediaHandler] Failed to play library file:", error),
     );
   });
@@ -322,13 +353,14 @@
           };
 
           fileObject.subtitleFiles = subtitleFiles;
-          await playLocalFileEntry(fileObject, {
+          const source = createLibraryPlaybackSource(fileObject, {
             media: obj.media,
             episode: obj.episode,
             season: obj.season,
             parseObject: fileObject.media.parseObject,
             failed: obj.failed,
           });
+          await playLocalFileEntry(source);
           return true;
         }
       } catch (error) {
@@ -561,14 +593,24 @@
         thumbnail: media?.coverImage?.extraLarge,
       };
 
-      nowPlaying.set({
-        ...(newPlaying ? newPlaying : {}),
+      const nextSource = {
+        ...(playbackSession.value.source ||
+          createTorrentPlaybackSource(processedFiles.value?.[0] || files.value?.[0], {
+            ...(newPlaying ? newPlaying : {}),
+            media,
+            episode: ep,
+            season: newPlaying?.season ?? opts?.season ?? null,
+            parseObject,
+          })),
         media,
+        episode: ep,
+        season: newPlaying?.season ?? opts?.season ?? null,
         parseObject,
         failed: opts.failed || parseObject?.failed,
         ...details,
-      });
-      if (!newPlaying) setMediaSession(nowPlaying.value);
+      };
+      updateActiveSource(nextSource);
+      if (!newPlaying) setMediaSession(getNowPlayingSnapshot(nextSource));
       debug(`Now playing as been set to: ${JSON.stringify(details)}`);
     } else nowPlaying.set({ failed: true }); // If the file exists, we should always play it.
   }
@@ -1070,6 +1112,9 @@
       throw new Error(
         "No playable files were detected in this torrent. Choose another release.",
       );
+    const source = createTorrentPlaybackSource(file, newPlaying);
+    beginBuiltinPlayback(source);
+    syncNowPlaying(source);
     playFile(file || 0);
     await handleMedia(file?.media, newPlaying);
   }

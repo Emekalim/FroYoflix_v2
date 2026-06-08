@@ -16,7 +16,7 @@
   import { anilistClient } from "@/modules/anilist.js";
   import { episodesList } from "@/modules/episodes.js";
   import MediaResolver from "@/modules/resolver/MediaResolver.js";
-  import { durationMap, getMediaMaxEp } from "@/modules/anime/anime.js";
+  import { getMediaMaxEp } from "@/modules/anime/anime.js";
   import { writable } from "simple-store-svelte";
   import { createEventDispatcher, tick } from "svelte";
   import Subtitles from "@/modules/subtitles.js";
@@ -42,8 +42,18 @@
   import Keybinds, { loadWithDefaults, condition } from "svelte-keybinds";
   import { SUPPORTS } from "@/modules/support.js";
   import "rvfc-polyfill";
-  import { IPC, ELECTRON, ANDROID } from "@/modules/bridge.js";
+  import { IPC, ELECTRON } from "@/modules/bridge.js";
   import WPC from "@/modules/wpc.js";
+  import {
+    failPlayback,
+    markPlaybackEnded,
+    markPlaybackPaused,
+    markPlaybackPlaying,
+    markPlaybackReady,
+    playbackSession,
+    PLAYBACK_TARGET,
+  } from "@/modules/playback/session.js";
+  import { getNowPlayingSnapshot } from "@/modules/playback/source.js";
   import {
     X,
     Minus,
@@ -55,7 +65,6 @@
     FastForward,
     Keyboard,
     EllipsisVertical,
-    SquareArrowOutUpRight,
     List,
     Eye,
     FilePlus2,
@@ -149,25 +158,23 @@
   let source = null;
   let gainNode = null;
   let playbackRate = 1;
-  let externalPlayerReady = false;
   let startupBufferRequest = 0;
   let startupBufferPending = false;
   let startupPlaybackPending = false;
   let initialStartPosition = 0;
   let initialStartPositionApplied = false;
   $: cache.setEntry(caches.GENERAL, "volume", String(volume || 0));
-  $: launchedExternal = false;
-  $: externalPlayback =
-    ($settings.enableExternal || launchedExternal) &&
-    (SUPPORTS.isAndroid || $settings.playerPath);
-  $: safeduration = externalPlayback
-    ? (current?.media?.media?.duration ||
-        (current?.media?.media?.format &&
-          durationMap[current?.media?.media?.format]) ||
-        24) * 60
-    : isFinite(duration)
-      ? duration
-      : currentTime;
+  $: builtinSource =
+    $playbackSession?.target === PLAYBACK_TARGET.BUILTIN
+      ? $playbackSession.source
+      : null;
+  $: if (builtinSource?.file && current?.path !== builtinSource.file.path) {
+    current = builtinSource.file;
+  }
+  $: if (builtinSource && builtinSource !== null) {
+    media = getNowPlayingSnapshot(builtinSource);
+  }
+  $: safeduration = isFinite(duration) ? duration : currentTime;
   $: {
     if (hidden) setDiscordRPC(media, video?.currentTime);
     else setDiscordRPC(media, paused && $page !== page.PLAYER);
@@ -428,7 +435,6 @@
       hlsAudioTrackIndex = idx;
     }
   }
-  let externalReadyListener;
   let transcoderPort = null;
   async function handleCurrent(file) {
     // Skip hidden files
@@ -443,7 +449,6 @@
     initialStartPosition = 0;
     initialStartPositionApplied = false;
     video?.pause?.();
-    externalPlayerReady = false;
     showBuffering();
     updateStartupStage(24, "Loading video", file?.name || "Preparing stream");
     if (file) {
@@ -468,7 +473,7 @@
     }
   }
 
-  async function setCurrent(file, launchExternal = false) {
+  async function setCurrent(file) {
     if (!video) await tick();
     if (!video) {
       debug("Video element not found in setCurrent");
@@ -477,36 +482,35 @@
     initialStartPosition = await resolveInitialStartPosition();
     targetTime = initialStartPosition;
     currentTime = initialStartPosition;
-    if (!externalPlayback) {
-      try {
-        // CRITICAL CLEANUP: Destroy previous HLS and detach media
-        if (hls) {
-          hls.destroy();
-          hls = null;
-          hlsAudioTracks = [];
-          hlsAudioTrackIndex = -1;
-        }
-        // Force clear video src to stop previous playback/loading
-        src = "";
-        if (video) {
-          video.removeAttribute("src");
-          video.load(); // triggers emptying of media element
-        }
+    try {
+      // CRITICAL CLEANUP: Destroy previous HLS and detach media
+      if (hls) {
+        hls.destroy();
+        hls = null;
+        hlsAudioTracks = [];
+        hlsAudioTrackIndex = -1;
+      }
+      // Force clear video src to stop previous playback/loading
+      src = "";
+      if (video) {
+        video.removeAttribute("src");
+        video.load(); // triggers emptying of media element
+      }
 
-        // Check if file needs HLS transcoding (unsupported formats)
-        const needsTranscoding =
-          file.url?.startsWith("file://") &&
-          ["mkv", "avi", "wmv", "flv", "ts", "m2ts"].some((ext) =>
-            file.name?.toLowerCase().endsWith(`.${ext}`),
-          );
+      // Check if file needs HLS transcoding (unsupported formats)
+      const needsTranscoding =
+        file.url?.startsWith("file://") &&
+        ["mkv", "avi", "wmv", "flv", "ts", "m2ts"].some((ext) =>
+          file.name?.toLowerCase().endsWith(`.${ext}`),
+        );
 
-        if (needsTranscoding && ELECTRON) {
-          try {
-            updateStartupStage(48, "Starting transcode", "Preparing HLS stream");
-            // Get transcoder port
-            const port = await window.electron.getTranscoderPort();
-            if (!port) throw new Error("Transcoder not available");
-            transcoderPort = port;
+      if (needsTranscoding && ELECTRON) {
+        try {
+          updateStartupStage(48, "Starting transcode", "Preparing HLS stream");
+          // Get transcoder port
+          const port = await window.electron.getTranscoderPort();
+          if (!port) throw new Error("Transcoder not available");
+          transcoderPort = port;
 
             // Request HLS URL from transcoder
             const filePath = decodeURIComponent(
@@ -610,67 +614,52 @@
               console.error("[HLS] Fragment load error", data);
             });
 
-            subs = new Subtitles(video, files, current, handleHeaders);
-          } catch (e) {
-            console.error("[HLS] Transcoding failed:", e);
-            toast.error("Failed to transcode video");
-            updateStartupStage(
-              62,
-              "Loading video",
-              "Transcode startup failed, loading the file directly",
-            );
-            // Fallback to direct playback
-            src = file.url;
-            subs = new Subtitles(video, files, current, handleHeaders);
-            video.load();
-          }
-        } else {
-          // Direct playback for supported formats
-          updateStartupStage(68, "Buffering stream", "Loading local file");
+          subs = new Subtitles(video, files, current, handleHeaders);
+        } catch (e) {
+          console.error("[HLS] Transcoding failed:", e);
+          toast.error("Failed to transcode video");
+          updateStartupStage(
+            62,
+            "Loading video",
+            "Transcode startup failed, loading the file directly",
+          );
+          // Fallback to direct playback
           src = file.url;
           subs = new Subtitles(video, files, current, handleHeaders);
           video.load();
         }
-      } catch (e) {
-        console.error("[Player] setCurrent failed:", e);
-        toast.error("Failed to load video");
-        startupBufferPending = false;
-        failPlayerStartup({
-          id: playerStartup.value?.id,
-          detail: e?.message || "Failed to load video",
-        });
-
-        // Reset state to prevent ghost events
-        if (hls) {
-          hls.destroy();
-          hls = null;
-          hlsAudioTracks = [];
-          hlsAudioTrackIndex = -1;
-        }
-        src = "";
-        video.removeAttribute("src");
-        current = null;
-      } finally {
-        // Ensure external player state is synced if needed
-        if (!externalPlayback) externalPlaying = false;
+      } else {
+        // Direct playback for supported formats
+        updateStartupStage(68, "Buffering stream", "Loading local file");
+        src = file.url;
+        subs = new Subtitles(video, files, current, handleHeaders);
+        video.load();
       }
-    } else externalPlaying = false;
-    emit("current", current); // #handleCurrent in MediaHandler
-    if (externalPlayback) {
-      WPC.clear("externalReady", externalReadyListener);
-      externalReadyListener = () => {
-        hideBuffering();
-        externalPlayerReady = true;
-        setTimeout(() => {
-          if (externalPlayerReady && !externalPlaying) autoPlay();
-        }, 1_500);
-      };
-      WPC.listen("externalReady", externalReadyListener);
+    } catch (e) {
+      console.error("[Player] setCurrent failed:", e);
+      toast.error("Failed to load video");
+      startupBufferPending = false;
+      failPlayerStartup({
+        id: playerStartup.value?.id,
+        detail: e?.message || "Failed to load video",
+      });
+      failPlayback(e?.message || "Failed to load video");
+
+      // Reset state to prevent ghost events
+      if (hls) {
+        hls.destroy();
+        hls = null;
+        hlsAudioTracks = [];
+        hlsAudioTrackIndex = -1;
+      }
+      src = "";
+      video.removeAttribute("src");
+      current = null;
     }
-    launchedExternal = launchExternal;
+    emit("current", current); // #handleCurrent in MediaHandler
     WPC.send("current", {
       current: file,
-      external: settings.value.enableExternal || launchExternal,
+      external: false,
     });
   }
 
@@ -921,7 +910,6 @@
   $: pagePause($page, $playPage, $modal);
   let pagePaused = 0;
   function pagePause(_page, _playPage, _modal) {
-    if (externalPlayback) return;
     if (buffer === 0 && pagePaused) {
       pagePaused = 1;
       return;
@@ -1003,8 +991,7 @@
       !resolvePrompt &&
       !skipPrompt
     ) {
-      if (externalPlayback) playPause();
-      else if (!hidden) {
+      if (!hidden) {
         if (targetBuffer > 0) {
           updateStartupStage(
             76,
@@ -1046,16 +1033,13 @@
         resetImmerse();
         setTimeout(() => subs?.renderer?.resize(), 200); // stupid fix because video metadata doesn't update for multiple frames
       }
-    } else if (!externalPlayback) {
+    } else {
       startupBufferPending = false;
       startupPlaybackPending = false;
       requestVideoPause();
     }
   }
 
-  let watchedListener;
-  let androidListener;
-  let externalPlaying = false;
   let playAttemptToken = 0;
   async function requestVideoPlay(reason = "playback", allowRetry = true) {
     if (!video || hidden) return false;
@@ -1081,38 +1065,7 @@
 
   function playPause() {
     if (hidden) return;
-    if (externalPlayback) {
-      const duration =
-        current.media?.media?.duration ||
-        durationMap[current.media?.media?.format];
-      if (duration) {
-        WPC.clear("externalWatched", watchedListener);
-        watchedListener = (detail) => {
-          checkCompletionByTime(detail, duration * 60);
-          currentTime = detail;
-          targetTime = detail;
-          launchedExternal = false;
-        };
-        WPC.listen("externalWatched", watchedListener);
-      }
-      externalPlaying = true;
-      if (SUPPORTS.isAndroid) {
-        WPC.clear("androidExternal", androidListener);
-        androidListener = (url) => {
-          const startTime = Date.now();
-          const externalWatched = () => {
-            const watchTime = (Date.now() - startTime) / 1_000;
-            checkCompletionByTime(watchTime, duration * 60);
-            currentTime = watchTime;
-            targetTime = watchTime;
-            launchedExternal = false;
-          };
-          ANDROID.launchExternal?.(url)?.then?.(() => externalWatched());
-        };
-        WPC.listen("androidExternal", androidListener);
-      }
-      WPC.send("externalPlay", { current });
-    } else if (video?.paused) requestVideoPlay("manual toggle");
+    if (video?.paused) requestVideoPlay("manual toggle");
     else requestVideoPause();
     resetImmerse();
     setTimeout(() => subs?.renderer?.resize(), 200); // stupid fix because video metadata doesn't update for multiple frames
@@ -1205,10 +1158,9 @@
     muted = !muted;
   }
   function toggleFullscreen() {
-    if (!externalPlayback)
-      document.fullscreenElement
-        ? document.exitFullscreen()
-        : document.querySelector(".content-wrapper").requestFullscreen();
+    document.fullscreenElement
+      ? document.exitFullscreen()
+      : document.querySelector(".content-wrapper").requestFullscreen();
   }
   function skip() {
     const current = findChapter(currentTime);
@@ -1240,7 +1192,6 @@
     video.currentTime = targetTime;
   }
   function seek(time) {
-    if (externalPlayback) return;
     currentTime = currentTime + time;
     targetTime = currentTime;
     video.currentTime = targetTime;
@@ -1562,30 +1513,21 @@
       desc: "Volume Down",
     },
     BracketLeft: {
-      fn: () =>
-        !viewAnime &&
-        !externalPlayback &&
-        (playbackRate = video.defaultPlaybackRate -= 0.1),
+      fn: () => !viewAnime && (playbackRate = video.defaultPlaybackRate -= 0.1),
       id: "history",
       icon: RotateCcw,
       type: "icon",
       desc: "Decrease Playback Rate",
     },
     BracketRight: {
-      fn: () =>
-        !viewAnime &&
-        !externalPlayback &&
-        (playbackRate = video.defaultPlaybackRate += 0.1),
+      fn: () => !viewAnime && (playbackRate = video.defaultPlaybackRate += 0.1),
       id: "update",
       icon: RotateCw,
       type: "icon",
       desc: "Increase Playback Rate",
     },
     Backslash: {
-      fn: () =>
-        !viewAnime &&
-        !externalPlayback &&
-        (playbackRate = video.defaultPlaybackRate = 1),
+      fn: () => !viewAnime && (playbackRate = video.defaultPlaybackRate = 1),
       icon: RefreshCcw,
       id: "schedule",
       type: "icon",
@@ -2418,12 +2360,11 @@
   }
 
   function checkCompletionByTime(currentTime, safeduration) {
-    let threshold = $settings.playerAutocompleteThreshold / 100;
-    if (externalPlayerReady && threshold > 0.7) threshold = 0.7; // accommodates skipping op/ed in external player.
+    const threshold = $settings.playerAutocompleteThreshold / 100;
     if (
       safeduration &&
       currentTime &&
-      (video?.readyState || externalPlayerReady) &&
+      video?.readyState &&
       currentTime >= safeduration * threshold &&
       (media?.media?.episodes ||
         media?.media?.nextAiringEpisode?.episode >=
@@ -2445,11 +2386,9 @@
             console.error("[Library] Failed to finalize watch state:", libraryError),
           );
       }
-      externalPlayerReady = false;
       const _media = media.episodeRange ? structuredClone(media) : media;
       if (media.episodeRange) _media.episode = media.episodeRange.last;
       Helper.updateEntry(_media);
-      if (externalPlayback) tryPlayNext();
     }
   }
   const torrent = {};
@@ -2461,6 +2400,7 @@
   }
   function checkError({ target }) {
     // video playback failed - show a message saying why
+    if (target?.error) failPlayback(target.error.message || "Playback error");
     switch (target.error?.code) {
       case target.error.MEDIA_ERR_ABORTED:
         debug("You aborted the video playback.");
@@ -2633,7 +2573,7 @@
 
 <div
   class="player w-full h-full d-flex flex-column overflow-hidden position-relative"
-  class:ratio-16-9={!canPlay || !src || externalPlayback}
+  class:ratio-16-9={!canPlay || !src}
   class:pointer={miniplayer}
   class:rounded-top-10={miniplayer}
   class:miniplayer
@@ -2696,20 +2636,30 @@
     bind:muted
     bind:playbackRate
     on:error={checkError}
-    on:pause={updatew2g}
-    on:play={updatew2g}
+    on:pause={() => {
+      updatew2g();
+      markPlaybackPaused();
+      immersed = false;
+    }}
+    on:play={() => {
+      updatew2g();
+      markPlaybackPlaying();
+    }}
     on:seeked={updatew2g}
     on:timeupdate={() => createThumbnail()}
     on:timeupdate={checkCompletion}
     on:timeupdate={checkSkippableChapters}
     on:waiting={showBuffering}
     on:loadeddata={hideBuffering}
-    on:pause={() => {
-      immersed = false;
+    on:canplay={() => {
+      hideBuffering();
+      markPlaybackReady();
     }}
-    on:canplay={hideBuffering}
     on:playing={hideBuffering}
-    on:ended={tryPlayNext}
+    on:ended={() => {
+      markPlaybackEnded();
+      tryPlayNext();
+    }}
     on:loadedmetadata={initThumbnails}
     on:loadedmetadata={findChapters}
     on:loadedmetadata={applyInitialStartPosition}
@@ -2909,7 +2859,6 @@
     <span
       aria-hidden="true"
       class="icon ctrl align-items-center justify-content-end w-150 mw-full mr-auto"
-      class:hidden={externalPlayback}
       class:mb-50={!miniplayer}
       on:click={rewind}><Rewind size="3rem" /></span
     >
@@ -2946,7 +2895,7 @@
       {#if hasLast}
         <span
           class="icon ctrl position-absolute rounded-10 text-white"
-          style={externalPlayback ? `left: 5%` : `left: 15%`}
+          style="left: 15%"
           title="Last"
           data-name="playPause"
           use:click={playLast}
@@ -2971,7 +2920,7 @@
       {#if hasNext}
         <span
           class="icon ctrl position-absolute rounded-10 text-white"
-          style={externalPlayback ? `right: 5%` : `right: 15%`}
+          style="right: 15%"
           title="Next"
           data-name="playPause"
           use:click={playNext}
@@ -2983,7 +2932,6 @@
     <span
       aria-hidden="true"
       class="icon ctrl align-items-center w-150 mw-full ml-auto"
-      class:hidden={externalPlayback}
       class:mb-50={!miniplayer}
       on:click={forward}><FastForward size="3rem" /></span
     >
@@ -3061,7 +3009,7 @@
           <SkipForward size="2rem" fill="currentColor" />
         </span>
       {/if}
-      <div class="d-none w-auto volume" class:d-flex={!externalPlayback}>
+      <div class="d-flex w-auto volume">
         <span
           class="icon ctrl m-5 text-white"
           title="Mute [M]"
@@ -3141,24 +3089,13 @@
         >
         <div
           class="position-absolute hm-40 text-capitalize text-nowrap bg-dark rounded dr-arrow"
-          style="margin-top: {launchedExternal
-            ? -14
-            : externalPlayback
-              ? -10.3
-              : SUPPORTS.isAndroid || $settings.playerPath
-                ? -21
-                : -17.5}rem !important; margin-left: {launchedExternal
-            ? -11.1
-            : externalPlayback
-              ? -9.8
-              : -11.4}rem !important; transition: opacity 0.1s ease-in;"
+          style="margin-top: -17.5rem !important; margin-left: -11.4rem !important; transition: opacity 0.1s ease-in;"
           class:hidden={!$showOptions}
         >
           <div
             role="button"
             aria-label="Add External Subtitles"
-            class="pointer d-none align-items-center justify-content-center font-size-16 bd-highlight py-5 px-10 rounded-top option"
-            class:d-flex={!externalPlayback}
+            class="pointer d-flex align-items-center justify-content-center font-size-16 bd-highlight py-5 px-10 rounded-top option"
             title="Add External Subtitles"
             use:click={() => {
               fileInput.click();
@@ -3168,10 +3105,7 @@
             <FilePlus2 size="2rem" strokeWidth={2.5} />
             <div class="ml-10">Add Subtitles</div>
           </div>
-          <div
-            class="dropdown dropleft with-arrow pointer bg-dark option font-size-16 bd-highlight"
-            class:d-none={externalPlayback}
-          >
+          <div class="dropdown dropleft with-arrow pointer bg-dark option font-size-16 bd-highlight">
             <div
               role="button"
               class="d-flex align-items-center justify-content-center py-5 px-10"
@@ -3211,10 +3145,7 @@
               </div>
             </div>
           </div>
-          <div
-            class="dropdown dropleft with-arrow pointer bg-dark option font-size-16 bd-highlight"
-            class:d-none={externalPlayback}
-          >
+          <div class="dropdown dropleft with-arrow pointer bg-dark option font-size-16 bd-highlight">
             <div
               role="button"
               class="d-flex align-items-center justify-content-center py-5 px-10"
@@ -3275,24 +3206,8 @@
           </div>
           <div
             role="button"
-            aria-label="Play the Current Video in an External Player"
-            class="pointer d-none align-items-center justify-content-center font-size-16 bd-highlight py-5 px-10 option"
-            class:d-flex={(!externalPlayback || launchedExternal) &&
-              (SUPPORTS.isAndroid || $settings.playerPath)}
-            title="Play the Current Video in an External Player"
-            use:click={() => {
-              setCurrent(current, true);
-              showOptions.set(false);
-            }}
-          >
-            <SquareArrowOutUpRight size="2rem" strokeWidth={2.5} />
-            <div class="ml-10">External Player</div>
-          </div>
-          <div
-            role="button"
             aria-label="Modify Existing Files or Change to a New File"
             class="pointer d-flex align-items-center justify-content-center font-size-16 bd-highlight py-5 px-10 rounded-bottom option"
-            class:rounded-top={externalPlayback && !launchedExternal}
             title="Modify Existing Files or Change to a New File"
             use:click={() => {
               resolvePrompt = false;
@@ -3421,7 +3336,7 @@
           </div>
         </div>
       {/if}
-      {#if subHeaders?.length && !externalPlayback}
+      {#if subHeaders?.length}
         <div
           class="subtitles dropdown dropup with-arrow"
           use:click={toggleDropdown}
@@ -3540,8 +3455,7 @@
       <!--{/if}-->
       {#if "pictureInPictureEnabled" in document}
         <span
-          class="icon text-white ctrl mr-5 d-none align-items-center"
-          class:d-flex={!externalPlayback}
+          class="icon text-white ctrl mr-5 d-flex align-items-center"
           title="Popout Window [P]"
           data-name="togglePopout"
           use:click={togglePopout}
@@ -3554,8 +3468,7 @@
         </span>
       {/if}
       <span
-        class="icon text-white ctrl mr-5 d-none align-items-center"
-        class:d-flex={!externalPlayback}
+        class="icon text-white ctrl mr-5 d-flex align-items-center"
         title="Fullscreen [F]"
         data-name="toggleFullscreen"
         use:click={toggleFullscreen}

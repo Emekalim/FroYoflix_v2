@@ -5,7 +5,6 @@ import { hex2bin, arr2hex, text2arr } from 'uint8-util'
 import { makeHash, getInfoHash, hasIntegrity, getProgressAndSize, stringifyQuery, errorToString, encodeStreamURL, TMP } from '@client/lib/util.js'
 import { fontRx, sleep, subRx, videoRx, isValidNumber } from '@/modules/util.js'
 import { SUPPORTS } from '@/modules/support.js'
-import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import Metadata from '@client/lib/metadata.js'
 import Cache from '@client/lib/torrentcache.js'
@@ -16,9 +15,6 @@ const debug = Debug('torrent:worker')
 if (!globalThis.FileSystemFileHandle) globalThis.FileSystemFileHandle = false
 
 export default class TorrentClient extends WebTorrent {
-  player = ''
-  /** @type {ReturnType<spawn>} */
-  playerProcess = null
   networking = 'online'
   intervals = []
   timeouts = []
@@ -69,7 +65,6 @@ export default class TorrentClient extends WebTorrent {
       natUpnp: SUPPORTS.permamentNAT ? 'permanent' : true
     })
     this.settings = settings
-    this.player = settings.playerPath
     this.ipc = ipc
     this.TMPDIR = this.settings.TMPDIR
     this.torrentPath = this.settings.torrentPathNew || (SUPPORTS.isAndroid ? this.TMPDIR : TMP) || ''
@@ -528,7 +523,6 @@ export default class TorrentClient extends WebTorrent {
         this.settings = { ...data.data }
         this.throttleDownload(this.settings.downloadLimit)
         this.throttleUpload(this.settings.uploadLimit)
-        this.player = this.settings.playerPath
         this.torrentPath = this.settings.torrentPathNew || (SUPPORTS.isAndroid ? this.TMPDIR : TMP) || ''
         this.torrentCache = new Cache(this.torrentPath)
         break
@@ -538,10 +532,6 @@ export default class TorrentClient extends WebTorrent {
           if (!torrent || torrent.destroyed) return
           const found = torrent.files.find(file => file.path === data.data.current.path)
           if (!found || found._destroyed) return
-          if (this.playerProcess) {
-            this.playerProcess.kill()
-            this.playerProcess = null
-          }
           if (this.currentFile) {
             this.currentFile.removeAllListeners('stream')
             this.currentFile.removeAllListeners('iterator')
@@ -587,33 +577,10 @@ export default class TorrentClient extends WebTorrent {
           }
           torrent.current = true
           this.bumpTorrent(torrent)
-          if (!(data.data.external && (SUPPORTS.isAndroid || this.player))) {
-            this.metadata = new Metadata(this, found)
-            this.findSubtitleFiles(found)
-            this.findFontFiles(found)
-          } else this.dispatch('externalReady')
+          this.metadata = new Metadata(this, found)
+          this.findSubtitleFiles(found)
+          this.findFontFiles(found)
         }
-        break
-      } case 'externalPlay': {
-        const startTime = Date.now()
-        const found = this.torrents.find(_torrent => _torrent.current)?.files?.find(file => file.path === data.data.current.path)
-        if (!found) return
-        this.ipc.removeAllListeners('external-close')
-        if (this.playerProcess) {
-          this.playerProcess.removeAllListeners('close')
-          this.playerProcess.kill()
-          this.playerProcess = null
-        }
-        if (this.player) {
-          this.playerProcess = spawn(this.player, ['' + new URL('http://localhost:' + this.server.address().port + encodeStreamURL(found.streamURL))])
-          this.playerProcess.stdout.on('data', () => { })
-          this.playerProcess.once('close', () => {
-            if (this.destroyed) return
-            this.playerProcess = null
-            const seconds = (Date.now() - startTime) / 1000
-            this.dispatch('externalWatched', seconds)
-          })
-        } else if (SUPPORTS.isAndroid) this.dispatch('androidExternal', `intent://localhost:${this.server.address().port}${encodeStreamURL(found.streamURL)}#Intent;type=video/any;scheme=http;end;`)
         break
       } case 'torrent': {
         const hash = data.data && data.data.hash
@@ -947,11 +914,6 @@ export default class TorrentClient extends WebTorrent {
       const currentTorrent = this.torrents.find(t => t.current)
       if (currentTorrent) currentTorrent.off('download', this._checkProgress)
       this._checkProgress = null
-    }
-    if (this.playerProcess) {
-      this.playerProcess.removeAllListeners()
-      this.playerProcess.kill()
-      this.playerProcess = null
     }
     this.tracker?.destroy(() => null)
     this.metadata?.destroy?.()

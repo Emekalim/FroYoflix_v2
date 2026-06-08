@@ -116,7 +116,7 @@ export async function getResultsFromExtensions({ media, episode, season, batch, 
     anidbEid,
     titles: createTitles(media),
     resolution,
-    exclusions: settings.value.enableExternal ? [] : exclusions
+    exclusions
   }
 
   const promises = new Map()

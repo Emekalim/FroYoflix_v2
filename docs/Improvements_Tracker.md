@@ -128,6 +128,16 @@ This document tracks major feature implementations, architectural improvements, 
         -   Update `tmdb-api.js` to return formatted `Media` objects.
         -   Update `DetailsModal.svelte` to use `SmallCard` for TMDB items.
 
+### 5. Chromecast Playback Foundation
+**Goal:** Prepare the playback stack for a standalone Chromecast sender implementation without inheriting the deprecated external-player flow.
+-   **Status:** **In Progress**.
+-   **Current State:**
+    -   ✅ **(2026-06-08)** Added canonical playback-domain modules in `common/modules/playback/source.js` and `common/modules/playback/session.js` so torrent and library playback now share a normalized `PlaybackSource` plus target-aware `PlaybackSessionState`.
+    -   ✅ **(2026-06-08)** Refactored `common/components/MediaHandler.svelte` and `common/modules/library/playback.js` so library and torrent entrypoints begin builtin playback through the same source/session path and keep `nowPlaying` as a compatibility snapshot derived from the active source.
+    -   ✅ **(2026-06-08)** Removed external-player settings, UI branches, and worker plumbing from `common/routes/player/PlayerPage.svelte`, `common/routes/settings/tabs/PlayerTab.svelte`, `common/modules/torrent.js`, and `client/core/webtorrent.js`.
+    -   ✅ **(2026-06-08)** Added unit coverage for playback source/session normalization plus successful Electron `pnpm web:build` validation after the refactor.
+    -   ⚠️ Chromecast sender bridge, receiver-safe LAN routing, remote controls, and subtitle conversion remain future phases.
+
 ---
 
 ## Future Roadmap

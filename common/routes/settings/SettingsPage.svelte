@@ -113,16 +113,10 @@
     else $settings.torrentPathNew = data
   }
 
-  function playerListener (data) {
-    $settings.playerPath = data
-  }
-
   $: IPC.emit('discord-rpc', $settings.enableRPC)
   IPC.on('path', pathListener)
-  IPC.on('player', playerListener)
   onDestroy(() => {
     IPC.off('path', pathListener)
-    IPC.off('player', playerListener)
   })
 </script>
 
