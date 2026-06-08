@@ -15,6 +15,15 @@ const available = createDefaultUpdaterState({
 assert.equal(getUpdaterPrimaryAction(available).action, 'download')
 assert.equal(shouldShowUpdateModal(available), true)
 
+const manualDownload = createDefaultUpdaterState({
+  phase: UPDATE_PHASES.AVAILABLE,
+  targetVersion: '1.2.3',
+  canDownload: true,
+  manualDownloadOnly: true
+})
+
+assert.equal(getUpdaterPrimaryAction(manualDownload).label, 'Download ZIP')
+
 const deferred = createDefaultUpdaterState({
   phase: UPDATE_PHASES.DEFERRED,
   targetVersion: '1.2.3',

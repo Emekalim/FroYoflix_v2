@@ -20,7 +20,9 @@ export const DEFAULT_UPDATE_CONFIG = Object.freeze({
   allowPrerelease: false,
   initialCheckDelayMs: 2_500,
   checkIntervalMs: 300_000,
-  releasesBaseUrl: 'https://github.com/Emekalim/FroYoflix_v2/releases'
+  releasesBaseUrl: 'https://github.com/Emekalim/FroYoflix_v2/releases',
+  // Temporary workaround for unsigned macOS builds until Developer ID signing is in place.
+  useExternalMacDownloadFlow: process.platform === 'darwin'
 })
 
 export function createUpdaterState({
@@ -36,6 +38,8 @@ export function createUpdaterState({
     releaseDate: '',
     channel,
     dismissedVersion: '',
+    downloadUrl: '',
+    manualDownloadOnly: false,
     error: null,
     manualCheckInFlight: false,
     canDownload: false,

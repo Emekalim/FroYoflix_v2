@@ -1,5 +1,5 @@
 import { autoUpdater } from 'electron-updater'
-import { app, ipcMain } from 'electron'
+import { app, ipcMain, shell } from 'electron'
 import path from 'node:path'
 import { development, store } from '../util.js'
 import {
@@ -86,6 +86,26 @@ export default class UpdaterService {
   onInstallRequested
   window
   config
+  lastCheckWasManual = false
+
+  shouldUseExternalMacDownloadFlow() {
+    return Boolean(this.config.useExternalMacDownloadFlow && process.platform === 'darwin')
+  }
+
+  getDownloadUrl(info = this.currentUpdateInfo) {
+    const version = info?.version || this.state.targetVersion
+    if (!version) return ''
+
+    const fileEntry = Array.isArray(info?.files)
+      ? info.files.find(file => String(file?.url || file?.name || '').endsWith('.zip'))
+      : null
+    const rawUrl = fileEntry?.url || fileEntry?.name || info?.path || ''
+    if (!rawUrl) return ''
+    if (/^https?:\/\//i.test(rawUrl)) return rawUrl
+
+    const tag = version.startsWith('v') ? version : `v${version}`
+    return `${this.config.releasesBaseUrl}/download/${tag}/${String(rawUrl).replace(/^\/+/, '')}`
+  }
 
   registerAutoUpdaterEvents() {
     autoUpdater.on('checking-for-update', () => {
@@ -111,6 +131,8 @@ export default class UpdaterService {
         releaseNotesUrl: '',
         releaseDate: '',
         dismissedVersion: '',
+        downloadUrl: '',
+        manualDownloadOnly: false,
         error: null,
         canDownload: false,
         canInstall: false
@@ -136,6 +158,8 @@ export default class UpdaterService {
         releaseNotesUrl: getReleaseNotesUrl(info?.version || this.state.targetVersion, this.config.releasesBaseUrl),
         releaseDate: info?.releaseDate || this.state.releaseDate || '',
         dismissedVersion: '',
+        downloadUrl: this.getDownloadUrl(info || this.currentUpdateInfo),
+        manualDownloadOnly: false,
         error: null,
         canDownload: false,
         canInstall: true
@@ -148,6 +172,7 @@ export default class UpdaterService {
         phase: UPDATE_PHASES.ERROR,
         error: normalizeError(error, stage, this.lastCheckWasManual),
         downloadProgress: stage === 'download' ? this.state.downloadProgress : 0,
+        manualDownloadOnly: this.state.manualDownloadOnly,
         canDownload: stage === 'download' && Boolean(this.state.targetVersion),
         canInstall: false
       })
@@ -244,6 +269,32 @@ export default class UpdaterService {
 
     if (this.devSimulationEnabled) {
       return this.runSimulatedDownload()
+    }
+
+    if (this.shouldUseExternalMacDownloadFlow()) {
+      const downloadUrl = this.state.downloadUrl || this.getDownloadUrl()
+      if (!downloadUrl) {
+        this.setState({
+          phase: UPDATE_PHASES.ERROR,
+          error: normalizeError(new Error('No download URL was available for this release.'), 'download', false),
+          canDownload: true,
+          canInstall: false
+        })
+        return false
+      }
+
+      await shell.openExternal(downloadUrl)
+      this.sessionDeferredVersion = this.state.targetVersion
+      this.setState({
+        phase: UPDATE_PHASES.DEFERRED,
+        dismissedVersion: this.state.targetVersion,
+        downloadUrl,
+        manualDownloadOnly: true,
+        error: null,
+        canDownload: true,
+        canInstall: false
+      })
+      return true
     }
 
     this.setState({
@@ -343,6 +394,8 @@ export default class UpdaterService {
       releaseNotesUrl: info?.releaseNotesUrl || getReleaseNotesUrl(targetVersion, this.config.releasesBaseUrl),
       releaseDate: info?.releaseDate || '',
       dismissedVersion: phase === UPDATE_PHASES.AVAILABLE ? '' : targetVersion,
+      downloadUrl: this.getDownloadUrl(info),
+      manualDownloadOnly: this.shouldUseExternalMacDownloadFlow(),
       error: null,
       canDownload: phase === UPDATE_PHASES.AVAILABLE,
       canInstall: false
@@ -365,6 +418,8 @@ export default class UpdaterService {
         releaseNotesUrl: '',
         releaseDate: '',
         dismissedVersion: '',
+        downloadUrl: '',
+        manualDownloadOnly: false,
         error: null,
         canDownload: false,
         canInstall: false
@@ -410,6 +465,7 @@ export default class UpdaterService {
             phase: UPDATE_PHASES.DOWNLOADED,
             downloadProgress: 100,
             dismissedVersion: '',
+            manualDownloadOnly: false,
             error: null,
             canDownload: false,
             canInstall: true
@@ -447,6 +503,8 @@ export default class UpdaterService {
         releaseNotesUrl: '',
         releaseDate: '',
         dismissedVersion: '',
+        downloadUrl: '',
+        manualDownloadOnly: false,
         error: null,
         canDownload: false,
         canInstall: false

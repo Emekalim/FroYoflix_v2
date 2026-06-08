@@ -201,7 +201,9 @@
   function getElectronPrimaryLabel() {
     switch (electronState.phase) {
       case UPDATE_PHASES.AVAILABLE:
-        return "Download Update";
+        return electronState.manualDownloadOnly
+          ? "Download ZIP"
+          : "Download Update";
       case UPDATE_PHASES.DOWNLOADING:
         return "Downloading...";
       case UPDATE_PHASES.DOWNLOADED:
@@ -210,7 +212,7 @@
         return "Installing...";
       case UPDATE_PHASES.ERROR:
         return electronState.error?.stage === "download"
-          ? "Retry Download"
+          ? (electronState.manualDownloadOnly ? "Retry ZIP Download" : "Retry Download")
           : "Check Again";
       default:
         return "Check for Updates";
