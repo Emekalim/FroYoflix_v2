@@ -116,6 +116,7 @@
     Settings,
   } from "lucide-svelte";
   import { registerPlayerKeybinds } from "@/routes/player/components/keybinds.js";
+  import { createImmerseController } from "@/routes/player/components/immerse.js";
   import Debug from "debug";
   const debug = Debug("ui:player");
 
@@ -163,9 +164,16 @@
   let muted = false;
   let wasPaused = null;
   let videos = [];
-  let immersed = false;
+  const immerseController = createImmerseController({
+    canImmerse: () => safeduration - currentTime !== 0,
+    isPaused: () => paused,
+    isMiniplayer: () => miniplayer,
+  });
+  const { immersed } = immerseController;
+  const immersePlayer = immerseController.immerse;
+  const resetImmerse = immerseController.reset;
+  const toggleImmerse = immerseController.toggle;
   let buffering = false;
-  let immerseTimeout = null;
   let bufferTimeout = null;
   let subHeaders = null;
   let pip = false;
@@ -1629,40 +1637,6 @@
     return { stream: canvas.captureStream(), destroy };
   }
 
-  function immersePlayer() {
-    if (safeduration - currentTime !== 0) {
-      immersed = true;
-      immerseTimeout = undefined;
-    }
-  }
-
-  let immerseToken = 0;
-  function resetImmerse() {
-    clearTimeout(immerseTimeout);
-    const token = ++immerseToken;
-    const wasImmersed = immersed;
-    setTimeout(() => {
-      if (token !== immerseToken || wasImmersed !== immersed) return;
-      immersed = false;
-      if (!paused || miniplayer) {
-        immerseTimeout = setTimeout(
-          () => {
-            if (token === immerseToken) immersePlayer();
-          },
-          (paused ? 5 : 1.5) * 1_000,
-        );
-      }
-    });
-  }
-
-  function toggleImmerse() {
-    if (immersed) resetImmerse();
-    else {
-      clearTimeout(immerseTimeout);
-      immersed = !immersed;
-    }
-  }
-
   let canPlay = !!src;
   function hideBuffering() {
     canPlay = !!src;
@@ -2248,7 +2222,7 @@
   class:rounded-top-10={miniplayer}
   class:miniplayer
   class:pip
-  class:immersed
+  class:immersed={$immersed}
   class:buffering={($page === page.PLAYER || miniplayer) && buffering}
   class:fitWidth
   bind:this={container}
@@ -2308,7 +2282,7 @@
     on:pause={() => {
       updatew2g();
       markPlaybackPaused();
-      immersed = false;
+      $immersed = false;
     }}
     on:play={() => {
       updatew2g();
