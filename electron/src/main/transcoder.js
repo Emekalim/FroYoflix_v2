@@ -9,6 +9,14 @@ import ffmpeg from 'fluent-ffmpeg'
 import getPort from 'get-port'
 import { buildHlsMasterPlaylist } from './hls-master-playlist.js'
 import {
+    captureRepairSignals,
+    consumeIntentionalStop,
+    createRepairState,
+    describeRepairSignals,
+    noteForcedCorruptionKill,
+    shouldAttemptRepair
+} from './transcode-repair-policy.js'
+import {
     buildSubtitleExtractionPlan
 } from './subtitle-extraction.js'
 
@@ -96,12 +104,13 @@ export class Transcoder {
 
     removeActiveTranscode(hash, command) {
         const commands = this.activeTranscodes.get(hash)
-        if (!commands) return
+        if (!commands) return false
         commands.delete(command)
         if (commands.size === 0) {
             this.activeTranscodes.delete(hash)
-            this.intentionalStops.delete(hash)
+            return true
         }
+        return false
     }
 
     async probe(filePath) {
@@ -767,6 +776,7 @@ export class Transcoder {
         }
 
         return new Promise((resolve, reject) => {
+            const repairState = createRepairState()
             // Explicit stream mapping excludes subtitle/attachment streams entirely —
             // relying on -sn is not sufficient for MKVs with bitmap subs (PGS/VOBSUB)
             // or embedded font attachments, which can cause FFmpeg to error before
@@ -818,6 +828,8 @@ export class Transcoder {
                     resolve()
                 })
                 .on('stderr', (stderrLine) => {
+                    captureRepairSignals(repairState, stderrLine)
+
                     // Only log errors or critical warnings
                     if (stderrLine.includes('Error') || stderrLine.includes('Opening')) {
                         console.log(`[FFmpeg] ${stderrLine}`)
@@ -825,43 +837,42 @@ export class Transcoder {
 
                     // Proactively catch fatal decoding errors that don't immediately crash FFmpeg
                     // This forces the 'error' handler to fire with SIGKILL, triggering the fallback logic
-                    if (!isRetry && !useRepaired && stderrLine.includes('Error submitting packet to decoder')) {
+                    if (!isRetry && !useRepaired && repairState.sawDecoderFailure && !repairState.forcedDecoderKillForCorruption) {
+                        noteForcedCorruptionKill(repairState)
                         console.error('[Transcoder] Detected fatal decoder error stream. Killing process to force fallback...')
                         command.kill('SIGKILL')
                     }
                 })
                 .on('error', async (err) => {
                     console.error(`[Transcoder] Error: ${err.message}`)
-                    this.removeActiveTranscode(hash, command)
+                    captureRepairSignals(repairState, err.message)
+                    const becameIdle = this.removeActiveTranscode(hash, command)
+                    const intentionalStop = consumeIntentionalStop(this.intentionalStops, hash)
 
-                    // Smart Fallback Logic
-                    // Trigger on critical decoder errors, unexpected crashes, or manual kill (SIGKILL)
-                    // Do NOT trigger if we are already using a repaired file (to prevent infinite loops)
-                    // Do NOT trigger if the stop was intentional (user request/app exit)
-                    if (this.intentionalStops.has(hash)) {
+                    if (intentionalStop) {
                         console.log(`[Transcoder] Ignoring expected SIGKILL for ${hash}`)
                         return
                     }
 
-                    if (!isRetry && !useRepaired && (
-                        err.message.includes('decoder') ||
-                        err.message.includes('Invalid data') ||
-                        err.message.includes('sigkill') ||
-                        err.message.includes('SIGKILL') // Check both cases
-                    )) {
-                        console.log('[Transcoder] Critical failure detected. Initiating Smart Fallback repair...')
+                    if (shouldAttemptRepair({ intentionalStop, isRetry, useRepaired, repairState })) {
+                        console.log(`[Transcoder] Critical failure detected (${describeRepairSignals(repairState)}). Initiating Smart Fallback repair...`)
                         try {
                             await this.repairFile(filePath, hash)
                             // Restart transcoding - will auto-detect the new repaired file
-                            await this.startTranscoding(filePath, hash, true)
+                            await this.startTranscoding(filePath, hash, true, options)
                         } catch (repairErr) {
                             console.error('[Transcoder] Repair failed:', repairErr)
                         }
+                        return
                     }
+
+                    console.warn(`[Transcoder] Transcode failed without repair for ${hash}: ${err.message}`)
+                    if (becameIdle) this.intentionalStops.delete(hash)
                 })
                 .on('end', () => {
                     console.log(`[Transcoder] Finished: ${hash}`)
-                    this.removeActiveTranscode(hash, command)
+                    const becameIdle = this.removeActiveTranscode(hash, command)
+                    if (becameIdle) this.intentionalStops.delete(hash)
                 })
 
             command.run()
@@ -930,11 +941,13 @@ export class Transcoder {
 
         return new Promise((resolve) => {
             let started = false
+            const repairState = createRepairState()
             const proc = spawn(ffmpegBinaryPath, args)
             const handle = { kill: (signal) => proc.kill(signal) }
 
             proc.stderr.on('data', (chunk) => {
                 const line = chunk.toString()
+                captureRepairSignals(repairState, line)
                 if (!started) {
                     started = true
                     this.addActiveTranscode(hash, handle)
@@ -944,7 +957,8 @@ export class Transcoder {
                 if (line.includes('Error') || line.includes('Opening')) {
                     console.log(`[FFmpeg:multi] ${line.trim()}`)
                 }
-                if (!isRetry && !useRepaired && line.includes('Error submitting packet to decoder')) {
+                if (!isRetry && !useRepaired && repairState.sawDecoderFailure && !repairState.forcedDecoderKillForCorruption) {
+                    noteForcedCorruptionKill(repairState)
                     console.error('[Transcoder] Fatal decoder error (multi). Killing...')
                     proc.kill('SIGKILL')
                 }
@@ -952,30 +966,41 @@ export class Transcoder {
 
             proc.on('error', (err) => {
                 if (!started) { started = true; resolve() }
+                captureRepairSignals(repairState, err.message)
                 console.error(`[Transcoder] Multi-audio spawn error: ${err.message}`)
-                this.removeActiveTranscode(hash, handle)
+                const becameIdle = this.removeActiveTranscode(hash, handle)
+                if (becameIdle) this.intentionalStops.delete(hash)
             })
 
             proc.on('close', async (code) => {
                 if (!started) { started = true; resolve() }
-                this.removeActiveTranscode(hash, handle)
+                const becameIdle = this.removeActiveTranscode(hash, handle)
+                const intentionalStop = consumeIntentionalStop(this.intentionalStops, hash)
 
-                if (this.intentionalStops.has(hash)) return
-
-                if (code === 0) {
-                    console.log(`[Transcoder] Multi-audio finished: ${hash}`)
+                if (intentionalStop) {
+                    console.log(`[Transcoder] Ignoring expected stop for multi-audio transcode ${hash}`)
                     return
                 }
 
-                if (!isRetry && !useRepaired) {
-                    console.log('[Transcoder] Multi-audio failed, attempting repair...')
+                if (code === 0) {
+                    console.log(`[Transcoder] Multi-audio finished: ${hash}`)
+                    if (becameIdle) this.intentionalStops.delete(hash)
+                    return
+                }
+
+                if (shouldAttemptRepair({ intentionalStop, isRetry, useRepaired, repairState })) {
+                    console.log(`[Transcoder] Multi-audio failed (${describeRepairSignals(repairState)}), attempting repair...`)
                     try {
                         await this.repairFile(filePath, hash)
-                        await this.startTranscoding(filePath, hash, true)
+                        await this.startTranscoding(filePath, hash, true, { selectedAudioTrack })
                     } catch (repairErr) {
                         console.error('[Transcoder] Repair failed:', repairErr)
                     }
+                    return
                 }
+
+                console.warn(`[Transcoder] Multi-audio exited without repair for ${hash} (code ${code})`)
+                if (becameIdle) this.intentionalStops.delete(hash)
             })
         })
     }

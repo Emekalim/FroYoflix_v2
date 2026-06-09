@@ -199,6 +199,11 @@ function updateLastErrorFromError(error) {
   return error?.message || String(error)
 }
 
+function isStaleDisconnectError(error) {
+  const message = String(error?.message || error || '')
+  return /reading 'disconnect'/.test(message) || /reading "disconnect"/.test(message)
+}
+
 export class CastSenderService {
   constructor(mainWindow, transcoder = null) {
     this.mainWindow = mainWindow
@@ -273,6 +278,37 @@ export class CastSenderService {
     return this.state.media || createDefaultMediaState()
   }
 
+  hasActiveSession() {
+    return Boolean(
+      this.client &&
+      this.player &&
+      this.player.connection &&
+      this.player.session &&
+      this.player.client
+    )
+  }
+
+  clearActiveSession({
+    bridgeStatus = 'ready',
+    sessionState = 'NO_SESSION',
+    lastError = null
+  } = {}) {
+    this.stopMediaPolling()
+    this.closeReason = null
+    this.client = null
+    this.player = null
+    this.currentReceiverId = null
+    this.updateState({
+      bridgeStatus,
+      castState: castStateFor(this.receivers.size, false),
+      sessionState,
+      session: null,
+      media: null,
+      lastError
+    })
+    return this.getState()
+  }
+
   buildMediaState(playerStatus = null, volumeStatus = null) {
     const previous = this.getCurrentVolumeState()
     const media = playerStatus?.media || this.player?.media?.currentSession?.media || null
@@ -297,7 +333,7 @@ export class CastSenderService {
   }
 
   async refreshMediaState(playerStatus = null, volumeStatus = null) {
-    if (!this.player || !this.client) return this.getState()
+    if (!this.hasActiveSession()) return this.getState()
 
     const nextPlayerStatus = playerStatus || await new Promise((resolve, reject) => {
       this.player.getStatus((error, status) => {
@@ -392,7 +428,7 @@ export class CastSenderService {
     this.receivers.set(receiver.id, receiver)
     this.updateState({
       bridgeStatus: 'ready',
-      castState: castStateFor(this.receivers.size, !!this.player),
+      castState: castStateFor(this.receivers.size, this.hasActiveSession()),
       lastError: null
     })
   }
@@ -406,7 +442,7 @@ export class CastSenderService {
       }
     }
     this.updateState({
-      castState: castStateFor(this.receivers.size, !!this.player)
+      castState: castStateFor(this.receivers.size, this.hasActiveSession())
     })
   }
 
@@ -459,7 +495,7 @@ export class CastSenderService {
 
   async requestSession(receiverId = null) {
     if (receiverId) this.currentReceiverId = receiverId
-    if (this.player && this.client) {
+    if (this.hasActiveSession()) {
       this.updateState({
         castState: 'CONNECTED',
         sessionState: 'SESSION_RESUMED',
@@ -467,6 +503,13 @@ export class CastSenderService {
         lastError: null
       })
       return this.getState()
+    }
+
+    if (this.player || this.client) {
+      try {
+        this.client?.close?.()
+      } catch {}
+      this.clearActiveSession()
     }
 
     const receiver = this.getPreferredReceiver()
@@ -535,6 +578,13 @@ export class CastSenderService {
     this.client = client
     this.player = player
 
+    player.on('close', () => {
+      if (this.player !== player) return
+      this.stopMediaPolling()
+      this.closeReason ||= 'ended'
+      if (this.client === client) client.close()
+    })
+
     player.on('status', () => {
       this.updateState({
         bridgeStatus: 'ready',
@@ -561,7 +611,7 @@ export class CastSenderService {
   }
 
   async loadMedia(payload = {}) {
-    if (!this.player || !this.client) {
+    if (!this.hasActiveSession()) {
       throw new Error('No active Cast session. Connect to a device first.')
     }
 
@@ -695,7 +745,7 @@ export class CastSenderService {
   }
 
   async control(payload = {}) {
-    if (!this.player || !this.client) {
+    if (!this.hasActiveSession()) {
       throw new Error('No active Cast session. Connect to a device first.')
     }
 
@@ -741,15 +791,14 @@ export class CastSenderService {
 
   async endSession() {
     if (!this.client || !this.player) {
-      this.updateState({
-        bridgeStatus: 'ready',
-        castState: castStateFor(this.receivers.size, false),
-        sessionState: 'NO_SESSION',
-        session: null,
-        media: null,
-        lastError: null
-      })
-      return this.getState()
+      return this.clearActiveSession()
+    }
+
+    if (!this.hasActiveSession()) {
+      try {
+        this.client?.close?.()
+      } catch {}
+      return this.clearActiveSession({ sessionState: 'SESSION_ENDED' })
     }
 
     const client = this.client
@@ -766,35 +815,26 @@ export class CastSenderService {
         resolve()
       })
     }).catch((error) => {
+      if (isStaleDisconnectError(error)) {
+        try {
+          client.close()
+        } catch {}
+        return null
+      }
       this.closeReason = 'error'
       client.close()
-      this.client = null
-      this.player = null
-      this.currentReceiverId = null
-      this.updateState({
+      this.clearActiveSession({
         bridgeStatus: 'error',
-        castState: castStateFor(this.receivers.size, false),
         sessionState: 'SESSION_ERROR',
-        session: null,
-        media: null,
         lastError: updateLastErrorFromError(error)
       })
       throw error
     })
 
-    client.close()
-    this.client = null
-    this.player = null
-    this.currentReceiverId = null
-    this.updateState({
-      bridgeStatus: 'ready',
-      castState: castStateFor(this.receivers.size, false),
-      sessionState: 'SESSION_ENDED',
-      session: null,
-      media: null,
-      lastError: null
-    })
-    return this.getState()
+    try {
+      client.close()
+    } catch {}
+    return this.clearActiveSession({ sessionState: 'SESSION_ENDED' })
   }
 
   async destroy() {

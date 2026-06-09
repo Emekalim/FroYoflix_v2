@@ -1,13 +1,13 @@
-# Changelog
+<!-- # Changelog
 
 All notable changes to FroYo are documented here.
-Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
+Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) -->
 
-## [1.0.4] - 2026-06-09
+## [1.1.0] - 2026-06-09
 
 ### Improved
-
-- Managed downloads now default to `Downloads/Froyo Library` on desktop, keep torrent data by default, and include clearer torrent manager states, labels, and empty-state messaging.
+- Added Chromecast playback support with receiver discovery, remote play/pause/seek/volume controls, subtitle carryover improvements, and more reliable cast-to-local handoff behavior.
+- Managed downloads now default to `Downloads/Froyo Library` on first initialization, keep torrent data by default, and include clearer torrent manager states, labels, and empty-state messaging.
 - Changes made to improve playback and navigation user experience across local library playback, torrent playback, and the shared Now Playing / Last Watched entry.
 
 ### Fixed
