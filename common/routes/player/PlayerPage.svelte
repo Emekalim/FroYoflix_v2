@@ -82,6 +82,7 @@
     shouldAutoComplete,
   } from "@/modules/playback/progress.js";
   import { createAudioGainManager } from "@/modules/playback/audioGain.js";
+  import { createThumbnailer } from "@/routes/player/components/thumbnails.js";
   import {
     X,
     Minus,
@@ -465,12 +466,7 @@
     showBuffering();
     updateStartupStage(24, "Loading video", file?.name || "Preparing stream");
     if (file) {
-      if (thumbnailData.video?.src) URL.revokeObjectURL(video?.src);
-      Object.assign(thumbnailData, {
-        thumbnails: [],
-        interval: undefined,
-        video: undefined,
-      });
+      thumbnailer.reset(video?.src);
       currentTime = 0;
       targetTime = 0;
       chapters = [];
@@ -2238,164 +2234,22 @@
     return toSeekbarChapters(normalised, safeduration);
   }
 
-  const thumbCanvas = document.createElement("canvas");
-  thumbCanvas.width = 200;
-  const thumbnailData = {
-    thumbnails: [],
-    canvas: thumbCanvas,
-    context: thumbCanvas.getContext("2d"),
-    interval: null,
-    video: null,
-  };
+  const thumbnailer = createThumbnailer({ getBuffer: () => buffer });
 
   function getThumbnail(percent) {
-    return (
-      thumbnailData.thumbnails[
-        Math.floor(((percent / 100) * safeduration) / thumbnailData.interval)
-      ] || " "
-    );
+    return thumbnailer.getThumbnail(percent, safeduration);
   }
   function createThumbnail(vid = video) {
-    if (vid?.readyState >= 2) {
-      const index = Math.floor(vid.currentTime / thumbnailData.interval);
-      if (!thumbnailData.thumbnails[index]) {
-        thumbnailData.context.fillRect(0, 0, 200, thumbnailData.canvas.height);
-        thumbnailData.context.drawImage(
-          vid,
-          0,
-          0,
-          200,
-          thumbnailData.canvas.height,
-        );
-        thumbnailData.thumbnails[index] =
-          thumbnailData.canvas.toDataURL("image/jpeg");
-      }
-    }
+    thumbnailer.captureCurrentFrame(vid);
   }
   let videoWidth, videoHeight;
   function initThumbnails() {
-    const height = 200 / (videoWidth / videoHeight);
-    if (!isNaN(height)) {
-      thumbnailData.interval = safeduration / 300 < 5 ? 5 : safeduration / 300;
-      thumbnailData.canvas.height = height;
-      generateThumbnails();
-    }
-  }
-  let thumbnailProcess = null;
-  async function generateThumbnails() {
-    debug("Starting thumbnail generation...");
-    if (thumbnailProcess && thumbnailProcess.running) {
-      debug(
-        "Detected a currently running thumbnail generation process, interrupting...",
-      );
-      thumbnailProcess.videoDraw.remove();
-      thumbnailProcess.running = false;
-      await new Promise((resolve) => setTimeout(resolve, 5 * 1_000));
-    }
-    const t0 = performance.now();
-    thumbnailProcess = {
-      videoDraw: document.createElement("video"),
-      running: true,
-    };
-    const videoDraw = thumbnailProcess.videoDraw;
-    videoDraw.src = current.url;
-    videoDraw.preload = "auto";
-    videoDraw.volume = 0;
-    videoDraw.playbackRate = 0;
-    videoDraw.onloadeddata = () => {
-      let index = 0;
-      let lastIndex = 0;
-      function captureThumbnail() {
-        if (!thumbnailProcess.running) {
-          debug(
-            "Thumbnail generation process was interrupted due to a change in the video url, exiting...",
-          );
-          return;
-        }
-        let dynamicDuration = (buffer / 100) * videoDraw.duration;
-        if (!isFinite(dynamicDuration)) {
-          debug("Video is still loading... waiting to generate thumbnails...");
-          setTimeout(() => captureThumbnail(), 1_000);
-          return;
-        }
-        while (thumbnailData.thumbnails[index]) index++;
-        const currentTime = index * thumbnailData.interval;
-        if (
-          currentTime >= dynamicDuration &&
-          currentTime < videoDraw.duration
-        ) {
-          if (lastIndex !== index) {
-            lastIndex = index;
-            debug(
-              `Reached currently downloaded video duration, current seek time is: ${currentTime}s (${index} of ${buffer}%), waiting for buffer update...`,
-            );
-          }
-          setTimeout(() => {
-            if (currentTime < (buffer / 100) * videoDraw.duration) {
-              lastIndex = 0;
-              debug(
-                "Detected a buffer change, continuing thumbnail generation...",
-              );
-            }
-            captureThumbnail();
-          }, 1_000);
-          return;
-        }
-
-        if (currentTime >= videoDraw.duration) {
-          debug(
-            "Thumbnail generation has successfully completed, took:",
-            toTS((performance.now() - t0) / 1_000),
-          );
-          videoDraw.remove();
-          return;
-        } else if (
-          isFinite(currentTime) &&
-          currentTime >= 0 &&
-          currentTime <= dynamicDuration
-        ) {
-          videoDraw.currentTime = currentTime;
-        } else {
-          debug(
-            "Something went wrong calculating the current time for the thumbnails video, calculated:",
-            currentTime,
-            dynamicDuration,
-            buffer,
-          );
-          return;
-        }
-
-        videoDraw.onseeked = () => {
-          if (!thumbnailProcess.running) {
-            debug(
-              "Thumbnail generation process was interrupted due to a change in the video url, exiting...",
-            );
-            return;
-          }
-          thumbnailData.context.fillRect(
-            0,
-            0,
-            200,
-            thumbnailData.canvas.height,
-          );
-          thumbnailData.context.drawImage(
-            videoDraw,
-            0,
-            0,
-            200,
-            thumbnailData.canvas.height,
-          );
-          thumbnailData.thumbnails[index] =
-            thumbnailData.canvas.toDataURL("image/jpeg");
-          captureThumbnail();
-        };
-      }
-      captureThumbnail();
-    };
-    videoDraw.onerror = (e) => {
-      debug("Error loading video for thumbnail generation:", e);
-      videoDraw.remove();
-    };
+    thumbnailer.init({
+      videoWidth,
+      videoHeight,
+      duration: safeduration,
+      url: current.url,
+    });
   }
 
   const showOptions = writable(false);
