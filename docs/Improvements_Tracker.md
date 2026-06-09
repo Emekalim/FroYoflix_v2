@@ -70,6 +70,23 @@ This document tracks major feature implementations, architectural improvements, 
 
 ---
 
+### 8. PlayerPage Logic-Module Refactor (Phase 1)
+**Goal:** Reduce the size and coupling of `common/routes/player/PlayerPage.svelte` (the repo's highest-churn file) by extracting pure logic into testable modules, without behavior changes or UI markup extraction.
+-   **Status:** **Implemented** (2026-06-09).
+-   **Key Implementations:**
+    -   Deleted dead code: commented Presentation API/P2P cast blocks, the `menubarOffset` no-op, and the always-falsy `getBurnIn(noSubs)` parameter.
+    -   `common/modules/playback/chapters.js` — chapter skip detection, normalisation, and seekbar mapping (unit tested in `playbackChapters.test.mjs`). The `chapters` write-back stays in the component: the normalise pass returns a new array, so the JSON-compare guard is live behavior, not dead code.
+    -   `common/modules/playback/discordActivity.js` — pure Discord RPC activity builders (`discordActivity.test.mjs`); the component keeps the IPC emit and hidden/empty-media guards.
+    -   `common/modules/playback/progress.js` — deduplicated episode-identity query (was 3×) and media cache key (was 6×), plus clamp and autocomplete predicates (`playbackProgress.test.mjs`).
+    -   `common/modules/playback/audioGain.js` — store-backed Web Audio boost manager with injected cache deps (`audioGain.test.mjs`); component consumes `$gain`/`$volume`/`$volumeBoosted`.
+    -   `common/routes/player/components/thumbnails.js` — seekbar thumbnail generation factory, callback-bridged (`getBuffer`), markup handlers unchanged via thin wrappers.
+    -   `common/routes/player/components/keybinds.js` — default keybind table + icon imports; component passes action callbacks and `isViewAnime` as a getter so reactive mutations stay component-side.
+    -   `common/routes/player/components/immerse.js` — UI auto-hide state machine with preserved debounce timings (1.5s playing / 5s paused) and token cancellation.
+-   **Result:** PlayerPage.svelte 4,361 → 3,645 lines (~16%); 4 new unit-test suites. Deeper reduction requires touching the hard-coupled zones (`setCurrent`/HLS lifecycle, cast reactive derivations, pagePause machine) or a UI subcomponent pass — both deliberately out of scope for this phase.
+-   **Deviation from plan:** the chapters phase kept the `chapters = normalised` write-back (plan assumed the guard was dead; it is not, because `normaliseChapters` returns a new array after its internal `.map()`). The stretch phase (startup buffer waiters) was not attempted per plan guidance.
+
+---
+
 ## 🚧 Partial / In-Progress
 
 ### 1. Native Desktop Torrent Search Engine
