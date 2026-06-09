@@ -1891,6 +1891,12 @@
     }
   }
 
+  function syncBufferingWithPlayback() {
+    if (!video?.paused && video?.readyState >= 2) {
+      hideBuffering();
+    }
+  }
+
   function showBuffering() {
     if (!startupBufferPending) {
       updateStartupStage(84, "Buffering stream", "Waiting for playback to start");
@@ -2864,6 +2870,7 @@
     on:timeupdate={() => createThumbnail()}
     on:timeupdate={checkCompletion}
     on:timeupdate={checkSkippableChapters}
+    on:timeupdate={syncBufferingWithPlayback}
     on:waiting={showBuffering}
     on:loadeddata={hideBuffering}
     on:canplay={() => {
