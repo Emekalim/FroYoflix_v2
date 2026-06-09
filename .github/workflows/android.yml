@@ -1,15 +1,11 @@
 name: Android Build
 
-# on:
-#   workflow_dispatch:  # Allows manual triggering
-#   workflow_run:
-#     workflows: ["Electron Build and Release"]
-#     types:
-#       - completed
+on:
+  workflow_dispatch:  # Allows manual triggering
 
 jobs:
   release:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ false }}
     runs-on: ubuntu-latest
     defaults:
       run:
