@@ -72,6 +72,10 @@
     toSeekbarChapters,
   } from "@/modules/playback/chapters.js";
   import {
+    buildBrowsingActivity,
+    buildWatchingActivity,
+  } from "@/modules/playback/discordActivity.js";
+  import {
     X,
     Minus,
     ArrowDown,
@@ -2636,84 +2640,15 @@
       IPC.emit("discord-clear");
       return;
     }
-    let activity;
-    if (!browsing) {
-      const w2g = state.value?.code;
-      const details = np.title || undefined;
-      const timeLeft = safeduration - targetTime;
-      const timestamps = !paused
-        ? {
-            start: Date.now() - (targetTime > 0 ? targetTime * 1_000 : 0),
-            end: Date.now() + timeLeft * 1_000,
-          }
-        : undefined;
-      activity = {
-        details,
-        state:
-          details &&
-          (np.media?.format === "MOVIE" && (np.media?.episodes ?? 0) <= 1
-            ? "The Movie"
-            : np.episode
-              ? "Episode: " +
-                np.episode +
-                (np.media?.episodes ? " of " + np.media.episodes : "")
-              : "Streaming the Universe"),
-        timestamps,
-        party: {
-          size:
-            (np.episode &&
-              np.media?.episodes && [np.episode, np.media.episodes]) ||
-            undefined,
-        },
-        assets: {
-          large_text: np.title,
-          large_image: np.thumbnail,
-          small_image: !paused ? "playing" : "paused",
-          small_text: !paused ? "Playing" : "Paused",
-        },
-        instance: true,
-        type: 3,
-      };
-      // cannot have buttons and secrets at once
-      if (w2g) {
-        activity.secrets = {
-          join: w2g,
-          match: w2g + "m",
-        };
-        activity.party.id = w2g + "p";
-      } else {
-        activity.buttons = [
-          {
-            label: "Watch on FroYo",
-            url: `froyo://anime/${np.media?.id}`,
-          },
-          {
-            label: "Download FroYo",
-            url: "https://github.com/Emekalim/FroYoflix_v2/releases/latest",
-          },
-        ];
-      }
-    } else {
-      activity = {
-        timestamps: { start: Date.now() },
-        details: "Streaming anime instantly",
-        state: "Exploring the anime library...",
-        assets: {
-          large_image: "icon",
-          large_text: "https://github.com/Emekalim/FroYoflix_v2",
-          small_image: "searching",
-          small_text: "Browsing anime on FroYo",
-        },
-        buttons: [
-          {
-            label: "Download FroYo",
-            url: "https://github.com/Emekalim/FroYoflix_v2/releases/latest",
-          },
-        ],
-        instance: true,
-        type: 3,
-      };
-    }
+    const activity = browsing
+      ? buildBrowsingActivity()
+      : buildWatchingActivity({
+          nowPlaying: np,
+          paused,
+          currentTime: targetTime,
+          duration: safeduration,
+          w2gCode: state.value?.code,
+        });
     IPC.emit("discord", { activity });
   }
 </script>
