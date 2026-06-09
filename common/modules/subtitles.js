@@ -139,7 +139,12 @@ export default class Subtitles {
       if (file.url) {
         fetch(file.url)
           .then(response => response.blob())
-          .then(blob => this.addSingleSubtitleFile(new File([blob], file.name, { type: blob.type || `text/${file.name.split('.').pop()}` })))
+          .then(blob => {
+            const sourceFile = new File([blob], file.name, { type: blob.type || `text/${file.name.split('.').pop()}` })
+            sourceFile.sourcePath = file.path || null
+            sourceFile.sourceUrl = file.url || null
+            return this.addSingleSubtitleFile(sourceFile)
+          })
           .catch(error => {
             this._loadedExternalKeys.delete(key)
             console.error('[Subtitles] Failed to load external subtitle file:', file.url, error)

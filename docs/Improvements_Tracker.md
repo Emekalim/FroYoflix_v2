@@ -136,7 +136,12 @@ This document tracks major feature implementations, architectural improvements, 
     -   ✅ **(2026-06-08)** Refactored `common/components/MediaHandler.svelte` and `common/modules/library/playback.js` so library and torrent entrypoints begin builtin playback through the same source/session path and keep `nowPlaying` as a compatibility snapshot derived from the active source.
     -   ✅ **(2026-06-08)** Removed external-player settings, UI branches, and worker plumbing from `common/routes/player/PlayerPage.svelte`, `common/routes/settings/tabs/PlayerTab.svelte`, `common/modules/torrent.js`, and `client/core/webtorrent.js`.
     -   ✅ **(2026-06-08)** Added unit coverage for playback source/session normalization plus successful Electron `pnpm web:build` validation after the refactor.
-    -   ⚠️ Chromecast sender bridge, receiver-safe LAN routing, remote controls, and subtitle conversion remain future phases.
+    -   ✅ **(2026-06-08)** Replaced the abandoned in-renderer Cast SDK experiment with an Electron main-process sender bridge using native receiver discovery plus Cast V2 control in `electron/src/main/cast/service.js`.
+    -   ✅ **(2026-06-08)** Added Cast-safe HLS routing for unsupported local files, including fallback from FroYo's multi-audio master playlist to the receiver-compatible embedded-audio playlist for Chromecast sessions.
+    -   ✅ **(2026-06-08)** Preserved the currently selected local audio track at cast start by threading the chosen track index through the Cast load payload and transcoder cache/init flow.
+    -   ✅ **(2026-06-08)** Added v1 Cast text-subtitle carryover for local sidecar/extracted subtitles: the selected text subtitle is converted to WebVTT on demand and attached as an active Cast text track at load time.
+    -   ✅ **(2026-06-08)** Added Cast session remote controls in `electron/src/main/cast/service.js` and `common/routes/player/PlayerPage.svelte` so play/pause, seek, mute, and volume changes are routed to the active Cast receiver while the local player pauses and the UI reflects remote playback state.
+    -   ⚠️ Active subtitle switching during an existing Cast session, full alternate-audio switching on the receiver, torrent-embedded subtitle carryover, and image-subtitle support (PGS/VobSub) remain future phases.
 
 ---
 

@@ -1,6 +1,7 @@
 const { join, resolve } = require('path')
 const { DefinePlugin } = require('webpack')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
+const CopyWebpackPlugin = require('copy-webpack-plugin')
 
 const mode = process.env.NODE_ENV?.trim() || 'development'
 
@@ -88,6 +89,13 @@ module.exports = [
         '@': resolve(__dirname, '..', 'common')
       }
     },
+    plugins: [
+      new CopyWebpackPlugin({
+        patterns: [
+          { from: require.resolve('castv2/lib/cast_channel.proto'), to: 'cast_channel.proto' }
+        ]
+      })
+    ],
     mode,
     target: 'electron39.0-main'
   }

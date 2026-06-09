@@ -57,6 +57,13 @@
     installUpdate,
     updaterState
   } from '@/modules/updater.js'
+  import {
+    castState,
+    endCastSession,
+    openCastDiagnostics,
+    refreshCastState,
+    requestCastSession
+  } from '@/modules/cast.js'
   import { platformMap } from '@/routes/settings/SettingsPage.svelte'
   import SettingCard from '@/routes/settings/components/SettingCard.svelte'
   import ChangelogTab from '@/routes/settings/tabs/ChangelogTab.svelte'
@@ -144,6 +151,20 @@
         break
     }
   }
+
+  async function runCastAction(action, successMessage = null) {
+    try {
+      await action()
+      if (successMessage) {
+        toast.success(successMessage)
+      }
+    } catch (error) {
+      toast.error('Cast Diagnostics Error', {
+        description: error?.message || String(error),
+        duration: 8_000
+      })
+    }
+  }
 </script>
 
 <h4 class='mb-10 font-weight-bold'>Integrations</h4>
@@ -197,6 +218,31 @@
   </div>
 </SettingCard>
 {#if !SUPPORTS.isAndroid}
+  <SettingCard title='Chromecast Diagnostics' description='Native Electron Cast bridge diagnostics. Use this to verify local-network discovery and connect/disconnect flow before media load support is added.'>
+    <div class='d-flex flex-column'>
+      <span class='text-nowrap'>Bridge: {$castState.bridgeStatus}</span>
+      <span class='text-nowrap mt-5'>Engine: {$castState.sdkAvailable ? 'available' : 'unavailable'} / Session: {$castState.sessionState}</span>
+      <span class='text-nowrap mt-5'>Devices: {$castState.receivers?.length || 0}</span>
+      <span class='text-muted mt-5'>{$castState.session?.deviceName || $castState.castState || 'No device selected yet'}</span>
+      {#if $castState.lastError}
+        <span class='text-danger mt-5'>{$castState.lastError}</span>
+      {/if}
+      <div class='d-flex flex-column flex-md-row mt-10'>
+        <button type='button' use:click={() => runCastAction(() => openCastDiagnostics())} class='btn btn-primary d-flex align-items-center justify-content-center'>
+          <span class='text-truncate'>Initialize Bridge</span>
+        </button>
+        <button type='button' use:click={() => runCastAction(() => requestCastSession())} class='btn btn-link text-left text-md-center mt-5 mt-md-0 ml-md-10'>
+          Request Session
+        </button>
+        <button type='button' use:click={() => runCastAction(() => endCastSession(), 'Cast session ended')} class='btn btn-link text-left text-md-center mt-5 mt-md-0 ml-md-10'>
+          Disconnect
+        </button>
+        <button type='button' use:click={() => runCastAction(() => refreshCastState())} class='btn btn-link text-left text-md-center mt-5 mt-md-0 ml-md-10'>
+          Refresh State
+        </button>
+      </div>
+    </div>
+  </SettingCard>
   <SettingCard title='App Updates' description='Check for new desktop releases, download an available update, or install a downloaded update.'>
     {@const action = getUpdaterPrimaryAction($updaterState)}
     <div class='d-flex flex-column'>

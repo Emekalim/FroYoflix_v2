@@ -32,7 +32,16 @@ contextBridge.exposeInMainWorld('electron', {
   onMinimize: (callback) => ipcRenderer.on('electron:onMinimize', (event, isMinimized) => callback(isMinimized)),
   onFullScreen: (callback) => ipcRenderer.on('electron:onFullScreen', (event, isFullScreen) => callback(isFullScreen)),
   getYouTube: () => ipcRenderer.invoke('electron:getYouTube'),
-  getTranscoderPort: () => ipcRenderer.invoke('get-transcoder-port')
+  getTranscoderPort: () => ipcRenderer.invoke('get-transcoder-port'),
+  cast: {
+    isAvailable: () => ipcRenderer.invoke('cast:isAvailable'),
+    getState: () => ipcRenderer.invoke('cast:getState'),
+    requestSession: (receiverId) => ipcRenderer.invoke('cast:requestSession', receiverId),
+    endSession: () => ipcRenderer.invoke('cast:endSession'),
+    openDiagnostics: () => ipcRenderer.invoke('cast:openDiagnostics'),
+    loadMedia: (payload) => ipcRenderer.invoke('cast:loadMedia', payload),
+    control: (payload) => ipcRenderer.invoke('cast:control', payload)
+  }
 })
 
 contextBridge.exposeInMainWorld('updater', {

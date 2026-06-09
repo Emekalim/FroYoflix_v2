@@ -45,6 +45,17 @@
   import { IPC, ELECTRON } from "@/modules/bridge.js";
   import WPC from "@/modules/wpc.js";
   import {
+    castMedia,
+    pauseCast,
+    playCast,
+    castState,
+    endCastSession,
+    requestCastSession,
+    seekCast,
+    setCastMuted,
+    setCastVolume,
+  } from "@/modules/cast.js";
+  import {
     failPlayback,
     markPlaybackEnded,
     markPlaybackPaused,
@@ -60,6 +71,7 @@
     ArrowDown,
     ArrowUp,
     Captions,
+    Cast,
     CircleHelp,
     Contrast,
     FastForward,
@@ -168,6 +180,10 @@
     $playbackSession?.target === PLAYBACK_TARGET.BUILTIN
       ? $playbackSession.source
       : null;
+  $: castPlaybackActive =
+    $castState?.sessionState === "SESSION_STARTED" ||
+    $castState?.sessionState === "SESSION_RESUMED";
+  $: castMediaState = $castState?.media || null;
   $: if (builtinSource?.file && current?.path !== builtinSource.file.path) {
     current = builtinSource.file;
   }
@@ -175,6 +191,21 @@
     media = getNowPlayingSnapshot(builtinSource);
   }
   $: safeduration = isFinite(duration) ? duration : currentTime;
+  $: playbackDuration = castPlaybackActive
+    ? Number(castMediaState?.duration) || safeduration
+    : safeduration;
+  $: playbackCurrentTime = castPlaybackActive
+    ? Number(castMediaState?.currentTime) || 0
+    : currentTime;
+  $: playbackPaused = castPlaybackActive
+    ? Boolean(castMediaState?.paused ?? true)
+    : paused;
+  $: playbackEnded = castPlaybackActive ? Boolean(castMediaState?.ended) : ended;
+  $: playbackMuted = castPlaybackActive ? Boolean(castMediaState?.muted) : muted;
+  $: playbackVolume = castPlaybackActive
+    ? Math.max(0, Math.min(1, Number(castMediaState?.volume ?? 1)))
+    : volume;
+  $: displayedTime = wasPaused == null ? playbackCurrentTime : targetTime;
   $: {
     if (hidden) setDiscordRPC(media, video?.currentTime);
     else setDiscordRPC(media, paused && $page !== page.PLAYER);
@@ -824,8 +855,20 @@
     }
   }
 
+  function getPlaybackCheckpointTime() {
+    return castPlaybackActive
+      ? playbackCurrentTime || 0
+      : video?.currentTime || currentTime || 0;
+  }
+
+  function getPlaybackCheckpointDuration() {
+    return castPlaybackActive ? playbackDuration || 0 : safeduration || 0;
+  }
+
   function saveAnimeProgress(error = false) {
-    if (!error && (buffering || video.readyState < 4)) return;
+    if (!castPlaybackActive && !error && (buffering || video.readyState < 4)) return;
+    const checkpointTime = error ? 0 : getPlaybackCheckpointTime();
+    const checkpointDuration = getPlaybackCheckpointDuration();
     if (error) {
       currentTime = 0;
       targetTime = 0;
@@ -848,22 +891,22 @@
                 ? ` E${media?.episode || current?.media?.parseObject?.episode_number}`
                 : ""))
           : current?.name,
-        currentTime: video.currentTime,
-        safeduration,
+        currentTime: checkpointTime,
+        safeduration: checkpointDuration,
       });
     else
       setAnimeProgress({
         mediaId: current.media.media.id,
         episode: current.media.episode,
-        currentTime: video.currentTime,
-        safeduration,
+        currentTime: checkpointTime,
+        safeduration: checkpointDuration,
       });
     if (current?.libraryItemId) {
       libraryRepository
         .updateWatch({
           itemId: current.libraryItemId,
-          positionSec: video.currentTime || 0,
-          durationSec: safeduration || 0,
+          positionSec: checkpointTime || 0,
+          durationSec: checkpointDuration || 0,
           completed,
         })
         .catch((libraryError) =>
@@ -872,7 +915,10 @@
     }
   }
   setInterval(() => {
-    if (!paused) saveAnimeProgress();
+    if (!playbackPaused) {
+      saveAnimeProgress();
+      checkCompletionByTime(getPlaybackCheckpointTime(), getPlaybackCheckpointDuration());
+    }
   }, 10_000);
 
   function cycleSubtitles() {
@@ -893,23 +939,49 @@
   }
 
   let currentTime = 0;
-  $: progress = (currentTime / safeduration) * 100;
-  $: targetTime = (!paused && currentTime) || targetTime;
-  function handleMouseDown({ detail }) {
+  let targetTime = 0;
+  $: progress = playbackDuration ? (displayedTime / playbackDuration) * 100 : 0;
+  $: {
     if (wasPaused == null) {
-      wasPaused = paused;
-      requestVideoPause();
+      if (castPlaybackActive) {
+        targetTime = playbackCurrentTime || 0;
+      } else if (!paused) {
+        targetTime = currentTime || 0;
+      }
     }
-    targetTime = (detail / 100) * safeduration;
   }
-  function handleMouseUp() {
-    if (!wasPaused) requestVideoPlay("seek resume");
+  async function handleMouseDown({ detail }) {
+    if (wasPaused == null) {
+      wasPaused = playbackPaused;
+      if (castPlaybackActive) await pauseCast().catch((error) => {
+        toast.error("Cast", { description: error?.message || "Failed to pause cast playback" });
+      });
+      else requestVideoPause();
+    }
+    targetTime = (detail / 100) * playbackDuration;
+  }
+  async function handleMouseUp() {
+    if (castPlaybackActive) {
+      try {
+        await seekCast(targetTime);
+        if (!wasPaused) await playCast();
+      } catch (error) {
+        toast.error("Cast", { description: error?.message || "Failed to seek cast playback" });
+      }
+    } else {
+      currentTime = targetTime;
+      if (video) video.currentTime = targetTime;
+      if (!wasPaused) requestVideoPlay("seek resume");
+    }
     wasPaused = null;
-    currentTime = targetTime;
   }
   $: pagePause($page, $playPage, $modal);
   let pagePaused = 0;
   function pagePause(_page, _playPage, _modal) {
+    if (castPlaybackActive) {
+      pagePaused = 1;
+      return;
+    }
     if (buffer === 0 && pagePaused) {
       pagePaused = 1;
       return;
@@ -1063,9 +1135,16 @@
     video?.pause?.();
   }
 
-  function playPause() {
+  async function playPause() {
     if (hidden) return;
-    if (video?.paused) requestVideoPlay("manual toggle");
+    if (castPlaybackActive) {
+      try {
+        if (playbackPaused) await playCast();
+        else await pauseCast();
+      } catch (error) {
+        toast.error("Cast", { description: error?.message || "Failed to update cast playback" });
+      }
+    } else if (video?.paused) requestVideoPlay("manual toggle");
     else requestVideoPause();
     resetImmerse();
     setTimeout(() => subs?.renderer?.resize(), 200); // stupid fix because video metadata doesn't update for multiple frames
@@ -1075,6 +1154,7 @@
   const handleVisibility = (visible) => {
     if ($settings.playerPause && !pip) {
       hidden = !visible;
+      if (castPlaybackActive) return;
       if (!video?.ended) {
         if (hidden) {
           visibilityPaused = paused;
@@ -1121,6 +1201,7 @@
     }
   }
   function setGain(event) {
+    if (castPlaybackActive) return;
     let value = parseFloat(event.target.value);
     if (value <= 1) {
       gainNode.gain.value = 1;
@@ -1139,6 +1220,7 @@
     });
   }
   function toggleGain() {
+    if (castPlaybackActive) return;
     setupAudio();
     if (volumeBoosted) {
       volume = gain <= 1 ? gain : 1;
@@ -1154,8 +1236,39 @@
       media?.parseObject?.file_name]: { boosted: volumeBoosted, gain },
     });
   }
-  function toggleMute() {
+  async function toggleMute() {
+    if (castPlaybackActive) {
+      try {
+        await setCastMuted(!playbackMuted);
+      } catch (error) {
+        toast.error("Cast", { description: error?.message || "Failed to update cast mute state" });
+      }
+      return;
+    }
     muted = !muted;
+  }
+
+  async function updatePlaybackVolume(value) {
+    if (castPlaybackActive) {
+      try {
+        await setCastVolume(value);
+      } catch (error) {
+        toast.error("Cast", { description: error?.message || "Failed to update cast volume" });
+      }
+      return;
+    }
+    volume = value;
+  }
+
+  function handleVolumeInput(event) {
+    const value = parseFloat(event.target.value);
+    if (!Number.isFinite(value)) return;
+    updatePlaybackVolume(value);
+  }
+
+  function adjustPlaybackVolume(delta) {
+    const nextValue = Math.max(0, Math.min(1, playbackVolume + delta));
+    updatePlaybackVolume(nextValue);
   }
   function toggleFullscreen() {
     document.fullscreenElement
@@ -1163,17 +1276,17 @@
       : document.querySelector(".content-wrapper").requestFullscreen();
   }
   function skip() {
-    const current = findChapter(currentTime);
+    const current = findChapter(playbackCurrentTime);
     if (current) {
       if (
         !isChapterSkippable(current) &&
         (current.end - current.start) / 1_000 > 100
       ) {
-        currentTime = currentTime + 85;
+        currentTime = playbackCurrentTime + 85;
       } else {
         const endtime = current.end / 1_000;
         if (
-          ((safeduration - endtime) | 0) === 0 &&
+          ((playbackDuration - endtime) | 0) === 0 &&
           hasNext &&
           settings.value.playerAutoplay
         )
@@ -1181,20 +1294,32 @@
         currentTime = endtime;
         currentSkippable = null;
       }
-    } else if (currentTime < 10) {
+    } else if (playbackCurrentTime < 10) {
       currentTime = 90;
-    } else if (safeduration - currentTime < 90) {
-      currentTime = safeduration;
+    } else if (playbackDuration - playbackCurrentTime < 90) {
+      currentTime = playbackDuration;
     } else {
-      currentTime = currentTime + 85;
+      currentTime = playbackCurrentTime + 85;
     }
     targetTime = currentTime;
-    video.currentTime = targetTime;
+    if (castPlaybackActive) {
+      seekCast(targetTime).catch((error) => {
+        toast.error("Cast", { description: error?.message || "Failed to skip on cast playback" });
+      });
+    } else {
+      video.currentTime = targetTime;
+    }
   }
   function seek(time) {
-    currentTime = currentTime + time;
+    currentTime = playbackCurrentTime + time;
     targetTime = currentTime;
-    video.currentTime = targetTime;
+    if (castPlaybackActive) {
+      seekCast(Math.max(0, Math.min(playbackDuration || targetTime, targetTime))).catch((error) => {
+        toast.error("Cast", { description: error?.message || "Failed to seek cast playback" });
+      });
+    } else {
+      video.currentTime = targetTime;
+    }
   }
   function forward() {
     seek(settings.value.playerSeek);
@@ -1226,15 +1351,103 @@
       setTimeout(() => subs?.renderer?.resize(), 200); // stupid fix because video metadata doesn't update for multiple frames
     }
   }
-  // function toggleCast () {
-  //   if (video.readyState) {
-  //     if (presentationConnection) {
-  //       presentationConnection?.terminate()
-  //     } else {
-  //       presentationRequest.start()
-  //     }
-  //   }
-  // }
+  let castBusy = false;
+
+  function getCastContentType(url, fallbackName = null) {
+    const path = url?.split("?")[0]?.toLowerCase?.() || "";
+    if (path.endsWith(".m3u8")) return "application/x-mpegurl";
+    if (path.endsWith(".mpd")) return "application/dash+xml";
+
+    const ext = fallbackName?.match(/\.([^.]+)$/i)?.[1]?.toLowerCase();
+    return {
+      webm: "video/webm",
+      ogg: "video/ogg",
+      ogv: "video/ogg",
+      mkv: "video/x-matroska",
+      avi: "video/x-msvideo",
+      mov: "video/quicktime",
+      mp4: "video/mp4",
+    }[ext] || "video/mp4";
+  }
+
+  function getSelectedCastAudioTrack() {
+    if (hls && Number.isFinite(hlsAudioTrackIndex) && hlsAudioTrackIndex >= 0) {
+      return hlsAudioTrackIndex;
+    }
+    if ("audioTracks" in HTMLVideoElement.prototype && video?.audioTracks?.length) {
+      const enabledIndex = [...video.audioTracks].findIndex((track) => track.enabled);
+      if (enabledIndex >= 0) return enabledIndex;
+      return 0;
+    }
+    return undefined;
+  }
+
+  function getSelectedCastSubtitle() {
+    if (!subs || subs.current == null || subs.current < 0) return null;
+    const header = subs.headers?.[subs.current];
+    if (!header) return null;
+
+    const subtitleFile =
+      subs.subtitleFiles?.[header.number] ||
+      (header.number >= 100 ? current?.subtitleFiles?.[header.number - 100] : null);
+
+    return {
+      number: header.number,
+      language: header.language || null,
+      name: header.name || null,
+      type: header.type || null,
+      sourcePath: subtitleFile?.sourcePath || subtitleFile?.path || null,
+      sourceUrl: subtitleFile?.sourceUrl || subtitleFile?.url || null,
+    };
+  }
+
+  async function startCast(receiverId = null) {
+    const url = current?.url;
+    if (!url) return;
+    castBusy = true;
+    try {
+      await requestCastSession(receiverId);
+      const title = media?.title || media?.parseObject?.anime_title || media?.media?.title?.romaji || current?.name || null;
+      const thumbnail = media?.thumbnail || media?.media?.coverImage?.extraLarge || null;
+      const contentType = getCastContentType(url, current?.name);
+      const startTime = (video?.currentTime > 0) ? video.currentTime : undefined;
+      const selectedAudioTrack = getSelectedCastAudioTrack();
+      const selectedSubtitle = getSelectedCastSubtitle();
+      await castMedia(url, contentType, {
+        title,
+        thumbnail,
+        startTime,
+        selectedAudioTrack,
+        selectedSubtitle,
+      });
+      requestVideoPause();
+      toast.success("Casting", { description: `Streaming to ${$castState.session?.deviceName || "Cast device"}` });
+    } catch (e) {
+      toast.error("Cast", { description: e?.message || "Failed to cast" });
+    } finally {
+      castBusy = false;
+    }
+  }
+
+  async function toggleCast() {
+    if (castBusy || !current) return;
+    if ($castState.sessionState === "SESSION_STARTED") {
+      castBusy = true;
+      try {
+        const resumeTime = playbackCurrentTime;
+        await endCastSession();
+        targetTime = resumeTime;
+        currentTime = resumeTime;
+        if (video) video.currentTime = resumeTime;
+      } catch (e) {
+        toast.error("Cast", { description: e?.message || "Failed to end session" });
+      } finally {
+        castBusy = false;
+      }
+      return;
+    }
+    await startCast();
+  }
   async function screenshot() {
     if ("clipboard" in navigator && video.readyState) {
       const canvas = document.createElement("canvas");
@@ -1407,7 +1620,7 @@
       desc: "Toggle Video Debanding",
     },
     KeyM: {
-      fn: () => !viewAnime && (muted = !muted),
+      fn: () => !viewAnime && toggleMute(),
       id: "volume_off",
       icon: VolumeX,
       type: "icon",
@@ -1439,13 +1652,15 @@
       type: "icon",
       desc: "Toggle Video Cover",
     },
-    // KeyD: {
-    //   fn: () => !viewAnime && toggleCast(),
-    //   id: 'cast',
-    //   icon: Cast,
-    //   type: 'icon',
-    //   desc: 'Toggle Cast [broken]'
-    // },
+    KeyD: ELECTRON && !SUPPORTS.isAndroid
+      ? {
+          fn: () => !viewAnime && toggleCast(),
+          id: "cast",
+          icon: Cast,
+          type: "icon",
+          desc: "Toggle Cast",
+        }
+      : undefined,
     KeyC: {
       fn: () => !viewAnime && cycleSubtitles(),
       id: "subtitles",
@@ -1489,9 +1704,9 @@
         if (viewAnime) return;
         e.stopImmediatePropagation();
         e.preventDefault();
-        if (volumeBoosted)
+        if (!castPlaybackActive && volumeBoosted)
           setGain({ target: { value: Math.min(3, gain + 0.05) } });
-        else volume = Math.min(1, volume + 0.05);
+        else adjustPlaybackVolume(0.05);
       },
       id: "volume_up",
       icon: Volume2,
@@ -1503,9 +1718,9 @@
         if (viewAnime) return;
         e.stopImmediatePropagation();
         e.preventDefault();
-        if (volumeBoosted)
+        if (!castPlaybackActive && volumeBoosted)
           setGain({ target: { value: Math.max(0, gain - 0.05) } });
-        else volume = Math.max(0, volume - 0.05);
+        else adjustPlaybackVolume(-0.05);
       },
       id: "volume_down",
       icon: Volume1,
@@ -2909,9 +3124,9 @@
         style="left: 50%; margin-left: -3rem;"
         use:click={playPause}
       >
-        {#if ended}
+        {#if playbackEnded}
           <RotateCw size="3rem" />
-        {:else if paused}
+        {:else if playbackPaused}
           <Play size="3rem" fill="currentColor" />
         {:else}
           <Pause size="3rem" fill="currentColor" />
@@ -2967,12 +3182,12 @@
           ? `var(--completed-color-dim)`
           : `var(--accent-color)`}
         class="font-size-20"
-        length={safeduration}
+        length={playbackDuration}
         {buffer}
         bind:progress
         on:seeking={handleMouseDown}
         on:seeked={handleMouseUp}
-        chapters={sanitiseChapters(chapters, safeduration)}
+        chapters={sanitiseChapters(chapters, playbackDuration)}
         {getThumbnail}
       />
     </div>
@@ -2983,9 +3198,9 @@
         data-name="playPause"
         use:click={playPause}
       >
-        {#if ended}
+        {#if playbackEnded}
           <RotateCw size="2rem" />
-        {:else if paused}
+        {:else if playbackPaused}
           <Play size="2rem" fill="currentColor" />
         {:else}
           <Pause size="2rem" fill="currentColor" />
@@ -3012,17 +3227,17 @@
       <div class="d-flex w-auto volume">
         <span
           class="icon ctrl m-5 text-white"
-          title="Mute [M]"
-          data-name="toggleMute"
-          use:click={toggleMute}
-        >
-          {#if muted}
-            <VolumeX size="2rem" fill="currentColor" />
-          {:else}
-            <Volume2 size="2rem" fill="currentColor" />
-          {/if}
-        </span>
-        {#if !volumeBoosted}
+        title="Mute [M]"
+        data-name="toggleMute"
+        use:click={toggleMute}
+      >
+        {#if playbackMuted}
+          <VolumeX size="2rem" fill="currentColor" />
+        {:else}
+          <Volume2 size="2rem" fill="currentColor" />
+        {/if}
+      </span>
+        {#if castPlaybackActive || !volumeBoosted}
           <input
             class="ctrl h-full custom-range"
             tabindex="-1"
@@ -3031,7 +3246,8 @@
             max="1"
             step="any"
             data-name="setVolume"
-            bind:value={volume}
+            value={playbackVolume}
+            on:input={handleVolumeInput}
           />
         {:else}
           <input
@@ -3047,7 +3263,7 @@
             on:input={setGain}
           />
         {/if}
-        {#if volume === 1 || volumeBoosted}
+        {#if !castPlaybackActive && (volume === 1 || volumeBoosted)}
           <span
             class="icon ctrl boost p-0 mt-15 d-flex align-items-center justify-content-center text-white"
             class:boost-color={volumeBoosted}
@@ -3060,9 +3276,9 @@
         {/if}
       </div>
       <div class="ts font-scale-20" class:mr-auto={playbackRate === 1}>
-        {toTS(targetTime, safeduration > 3600 ? 2 : 3)} / {toTS(
-          safeduration - targetTime,
-          safeduration > 3600 ? 2 : 3,
+        {toTS(displayedTime, playbackDuration > 3600 ? 2 : 3)} / {toTS(
+          playbackDuration - displayedTime,
+          playbackDuration > 3600 ? 2 : 3,
         )}
       </div>
       {#if playbackRate !== 1}
@@ -3444,15 +3660,49 @@
           </div>
         </div>
       {/if}
-      <!--{#if 'PresentationRequest' in window && canCast && current}-->
-      <!--  <span class='icon text-white ctrl mr-5 d-flex align-items-center text-white' title='Cast Video [D]' data-name='toggleCast' use:click={toggleCast}>-->
-      <!--    {#if presentationConnection}-->
-      <!--      <Cast size='2.5rem' fill='currentColor' strokeWidth={0} />-->
-      <!--    {:else}-->
-      <!--      <Cast size='2.5rem' strokeWidth={2.5} />-->
-      <!--    {/if}-->
-      <!--  </span>-->
-      <!--{/if}-->
+      {#if ELECTRON && !SUPPORTS.isAndroid && current}
+        {#if $castState.sessionState === "SESSION_STARTED"}
+          <span
+            class="icon text-primary ctrl mr-5 d-flex align-items-center"
+            title="Stop casting to {$castState.session?.deviceName || 'device'} [D]"
+            data-name="toggleCast"
+            use:click={toggleCast}
+          >
+            <Cast size="2.5rem" fill="currentColor" strokeWidth={0} />
+          </span>
+        {:else if ($castState.receivers?.length ?? 0) > 0}
+          <div class="dropdown dropup with-arrow" use:click={toggleDropdown}>
+            <span
+              class="icon text-white ctrl mr-5 d-flex align-items-center h-full"
+              title="Cast Video [D]"
+            >
+              <Cast size="2.5rem" strokeWidth={2.5} />
+            </span>
+            <div class="dropdown-menu dropdown-menu-right ctrl p-10 pb-0 mr-15 text-nowrap">
+              <div class="overflow-y-auto overflow-x-hidden hm-400">
+                {#each $castState.receivers as receiver}
+                  <div
+                    class="pb-5 pointer"
+                    use:click={(e) => { e.target.closest(".dropdown").classList.remove("show"); startCast(receiver.id); }}
+                  >
+                    {receiver.friendlyName || receiver.name}
+                  </div>
+                {/each}
+                <div class="mb-5 invisible"></div>
+              </div>
+            </div>
+          </div>
+        {:else}
+          <span
+            class="icon text-white ctrl mr-5 d-flex align-items-center"
+            title="Cast Video [D]"
+            data-name="toggleCast"
+            use:click={toggleCast}
+          >
+            <Cast size="2.5rem" strokeWidth={2.5} />
+          </span>
+        {/if}
+      {/if}
       {#if "pictureInPictureEnabled" in document}
         <span
           class="icon text-white ctrl mr-5 d-flex align-items-center"

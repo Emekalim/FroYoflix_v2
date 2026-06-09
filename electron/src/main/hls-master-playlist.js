@@ -21,7 +21,7 @@ export function buildHlsMasterPlaylist({ videoUri, audioRenditions = [] }) {
 
   const audios = (audioRenditions || []).filter((a) => a?.uri)
   if (!audios.length) {
-    lines.push('#EXT-X-STREAM-INF:BANDWIDTH=8000000')
+    lines.push('#EXT-X-STREAM-INF:BANDWIDTH=8000000,CODECS="avc1.640028,mp4a.40.2"')
     lines.push(String(videoUri))
     return lines.join('\n') + '\n'
   }
@@ -46,7 +46,7 @@ export function buildHlsMasterPlaylist({ videoUri, audioRenditions = [] }) {
     lines.push(`#EXT-X-MEDIA:${attrs.join(',')}`)
   }
 
-  lines.push('#EXT-X-STREAM-INF:BANDWIDTH=8000000,AUDIO="audio"')
+  lines.push('#EXT-X-STREAM-INF:BANDWIDTH=8000000,CODECS="avc1.640028,mp4a.40.2",AUDIO="audio"')
   lines.push(String(videoUri))
   return lines.join('\n') + '\n'
 }

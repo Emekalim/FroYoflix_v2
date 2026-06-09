@@ -10,7 +10,16 @@ const electronDefaults = {
   isFullScreen: noopAsyncBool,
   onMinimize: noop,
   onFullScreen: noop,
-  getYouTube: async () => 'https://www.youtube-nocookie.com'
+  getYouTube: async () => 'https://www.youtube-nocookie.com',
+  cast: {
+    isAvailable: noopAsyncBool,
+    getState: async () => null,
+    requestSession: noopAsyncBool,
+    endSession: noopAsyncBool,
+    openDiagnostics: noopAsyncBool,
+    loadMedia: noopAsyncBool,
+    control: noopAsyncBool
+  }
 }
 
 export const IPC = window.IPC

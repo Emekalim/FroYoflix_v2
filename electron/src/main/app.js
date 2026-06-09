@@ -18,6 +18,7 @@ import Dialog from './dialog.js'
 import Debug from './debugger.js'
 import { Transcoder } from './transcoder.js'
 import { registerSearchEngineHandlers } from './search-engine/index.js'
+import { CastSenderService } from './cast/service.js'
 
 export default class App {
   icon = nativeImage.createFromPath(join(__dirname, process.platform === 'win32' ? '/icon_filled.ico' : '/icon_filled.png'))
@@ -72,6 +73,7 @@ export default class App {
   ready = false
   notifications = {}
   transcoder = new Transcoder()
+  castSender = null
 
   constructor() {
     this.mainWindow.setMenuBarVisibility(false)
@@ -203,6 +205,11 @@ export default class App {
     } else {
       this.mainWindow.loadURL(`file://${join(__dirname, '/app.html')}`)
     }
+
+    this.castSender = new CastSenderService(this.mainWindow, this.transcoder)
+    this.castSender.ensureReady().catch((error) => {
+      console.error('[Cast] Failed to initialize cast sender bridge:', error)
+    })
 
     this.updater.start()
 
@@ -522,6 +529,7 @@ export default class App {
     this.tray?.destroy()
     for (const timeout of this.timeouts) clearTimeout(timeout)
     this.transcoder.stop()
+    await this.castSender?.destroy?.()
     this.timeouts.clear()
     clearTimeout(this.stateTimeout)
     saveWindowState(this.mainWindow)

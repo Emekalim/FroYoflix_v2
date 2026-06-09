@@ -1,8 +1,8 @@
 import http from 'http'
 import { createHash } from 'crypto'
-import { statSync, existsSync, createReadStream, writeFileSync } from 'fs'
+import { statSync, existsSync, createReadStream, writeFileSync, copyFileSync } from 'fs'
 import { mkdir, rm, stat } from 'fs/promises'
-import { join, basename, dirname } from 'path'
+import { join, basename, dirname, extname } from 'path'
 import { app } from 'electron'
 import { spawn } from 'child_process'
 import ffmpeg from 'fluent-ffmpeg'
@@ -242,14 +242,20 @@ export class Transcoder {
     /**
      * Generate stable cache key from file metadata
      */
-    getCacheKey(filePath) {
+    getCacheKey(filePath, options = {}) {
         try {
             const stats = statSync(filePath)
-            const input = `${filePath}-${stats.mtimeMs}-${stats.size}`
+            const selectedAudioTrack = Number.isFinite(options?.selectedAudioTrack)
+                ? `-audio:${options.selectedAudioTrack}`
+                : ''
+            const input = `${filePath}-${stats.mtimeMs}-${stats.size}${selectedAudioTrack}`
             return createHash('sha256').update(input).digest('hex')
         } catch (e) {
             // Fallback if file not found
-            return createHash('sha256').update(filePath).digest('hex')
+            const selectedAudioTrack = Number.isFinite(options?.selectedAudioTrack)
+                ? `-audio:${options.selectedAudioTrack}`
+                : ''
+            return createHash('sha256').update(`${filePath}${selectedAudioTrack}`).digest('hex')
         }
     }
 
@@ -290,6 +296,49 @@ export class Transcoder {
         }
     }
 
+    getCastSubtitleCacheKey(filePath) {
+        return this.getCacheKey(filePath)
+    }
+
+    async ensureCastSubtitleVtt(sourcePath) {
+        if (!sourcePath || !existsSync(sourcePath)) {
+            throw new Error('Cast subtitle source is missing')
+        }
+
+        const sourceStats = await stat(sourcePath)
+        const ext = extname(sourcePath).toLowerCase()
+        if (ext === '.vtt') return sourcePath
+
+        const hash = this.getCastSubtitleCacheKey(sourcePath)
+        const cacheDir = join(this.tempDir, hash, 'cast-subtitles')
+        const outputPath = join(cacheDir, `${basename(sourcePath, extname(sourcePath))}.vtt`)
+
+        let outputStats = null
+        try {
+            outputStats = await stat(outputPath)
+        } catch {}
+
+        if (!outputStats || outputStats.mtimeMs < sourceStats.mtimeMs) {
+            await mkdir(cacheDir, { recursive: true })
+            if (ext === '.webvtt') {
+                copyFileSync(sourcePath, outputPath)
+            } else {
+                await this.runFFmpeg([
+                    '-y',
+                    '-i', sourcePath,
+                    '-map', '0:0',
+                    '-vn',
+                    '-an',
+                    '-dn',
+                    '-c:s', 'webvtt',
+                    outputPath
+                ])
+            }
+        }
+
+        return outputPath
+    }
+
     getTranscodeStatus(hash) {
         const playlistStatus = this.getPlaylistStatus(hash)
         const active = this.activeTranscodes.has(hash)
@@ -311,12 +360,12 @@ export class Transcoder {
         }
     }
 
-    async ensureTranscoding(filePath, hash) {
+    async ensureTranscoding(filePath, hash, options = {}) {
         const status = this.getTranscodeStatus(hash)
         if (status.completed || status.active) return this.getTranscodeStatus(hash)
 
         if (!status.exists || status.phase === 'stalled') {
-            await this.startTranscoding(filePath, hash)
+            await this.startTranscoding(filePath, hash, false, options)
         }
 
         return this.getTranscodeStatus(hash)
@@ -342,6 +391,10 @@ export class Transcoder {
             // Returns HLS playlist URL with file parameter embedded
             if (url.pathname === '/init') {
                 const filePath = url.searchParams.get('file')
+                const audioTrackParam = url.searchParams.get('audioTrack')
+                const selectedAudioTrack = Number.isFinite(Number(audioTrackParam))
+                    ? Number(audioTrackParam)
+                    : null
 
                 // Reject invalid or hidden files
                 if (!filePath || !existsSync(filePath) || basename(filePath).startsWith('._')) {
@@ -351,14 +404,15 @@ export class Transcoder {
                     return
                 }
 
-                const hash = this.getCacheKey(filePath)
+                const hash = this.getCacheKey(filePath, { selectedAudioTrack })
                 console.log('[Transcoder] Init for:', filePath, 'Hash:', hash)
-                const status = await this.ensureTranscoding(filePath, hash)
+                const status = await this.ensureTranscoding(filePath, hash, { selectedAudioTrack })
+                const audioTrackQuery = selectedAudioTrack != null ? `&audioTrack=${selectedAudioTrack}` : ''
 
                 res.writeHead(200, { 'Content-Type': 'application/json' })
                 res.end(JSON.stringify({
                     // CRITICAL: Include file path in playlist URL for stateless design
-                    url: `http://localhost:${this.port}/hls/${hash}/master.m3u8?file=${encodeURIComponent(filePath)}`,
+                    url: `http://localhost:${this.port}/hls/${hash}/master.m3u8?file=${encodeURIComponent(filePath)}${audioTrackQuery}`,
                     hash,
                     status
                 }))
@@ -412,6 +466,10 @@ export class Transcoder {
 
                 const isPlaylistRequest = filename.endsWith('.m3u8')
                 if (isPlaylistRequest) {
+                    const audioTrackParam = url.searchParams.get('audioTrack')
+                    const selectedAudioTrack = Number.isFinite(Number(audioTrackParam))
+                        ? Number(audioTrackParam)
+                        : null
                     if (!existsSync(filePath)) {
                         const originalFile = url.searchParams.get('file')
                         if (!originalFile) {
@@ -419,7 +477,7 @@ export class Transcoder {
                             res.end('Missing file source')
                             return
                         }
-                        await this.startTranscoding(originalFile, hash)
+                        await this.startTranscoding(originalFile, hash, false, { selectedAudioTrack })
                     } else if (existsSync(filePath) && !this.activeTranscodes.has(hash)) {
                         const statusPlaylistPath = join(cacheDir, 'playlist.m3u8')
                         const { readFileSync } = await import('fs')
@@ -430,7 +488,7 @@ export class Transcoder {
                                 console.log('[Transcoder] Found incomplete playlist with no active process. Restarting:', hash)
                                 const originalFile = url.searchParams.get('file')
                                 if (originalFile) {
-                                    await this.startTranscoding(originalFile, hash)
+                                    await this.startTranscoding(originalFile, hash, false, { selectedAudioTrack })
                                 }
                             }
                         } catch (e) {
@@ -494,16 +552,77 @@ export class Transcoder {
                 return
             }
 
+            // Route: /file?path=<encoded absolute path>
+            // Serves a local file with range request support for Cast device streaming
+            if (url.pathname === '/file') {
+                const filePath = url.searchParams.get('path')
+                if (!filePath || !existsSync(filePath) || basename(filePath).startsWith('._')) {
+                    res.writeHead(400)
+                    res.end('Invalid file')
+                    return
+                }
+
+                let fileStats
+                try { fileStats = statSync(filePath) } catch {
+                    res.writeHead(404)
+                    res.end('Not found')
+                    return
+                }
+
+                const ext = filePath.split('.').pop()?.toLowerCase() || ''
+                const mimeMap = {
+                    mp4: 'video/mp4', mkv: 'video/x-matroska', webm: 'video/webm',
+                    avi: 'video/x-msvideo', mov: 'video/quicktime', ogg: 'video/ogg',
+                    ogv: 'video/ogg', m4v: 'video/mp4', ts: 'video/mp2t', vtt: 'text/vtt'
+                }
+                const contentType = mimeMap[ext] || 'video/mp4'
+                const totalSize = fileStats.size
+
+                const rangeHeader = req.headers['range']
+                if (rangeHeader) {
+                    const [startStr, endStr] = rangeHeader.replace('bytes=', '').split('-')
+                    const start = parseInt(startStr, 10)
+                    const end = endStr ? parseInt(endStr, 10) : totalSize - 1
+                    const chunkSize = end - start + 1
+                    res.writeHead(206, {
+                        'Content-Range': `bytes ${start}-${end}/${totalSize}`,
+                        'Accept-Ranges': 'bytes',
+                        'Content-Length': chunkSize,
+                        'Content-Type': contentType,
+                        'Access-Control-Allow-Origin': '*'
+                    })
+                    createReadStream(filePath, { start, end }).pipe(res)
+                } else {
+                    res.writeHead(200, {
+                        'Content-Length': totalSize,
+                        'Content-Type': contentType,
+                        'Accept-Ranges': 'bytes',
+                        'Access-Control-Allow-Origin': '*'
+                    })
+                    createReadStream(filePath).pipe(res)
+                }
+                return
+            }
+
             res.writeHead(404)
             res.end()
         })
 
         return new Promise((resolve) => {
-            this.server.listen(this.port, 'localhost', () => {
+            this.server.listen(this.port, () => {
                 console.log(`[Transcoder] HLS Server listening on port ${this.port}`)
                 resolve(this.port)
             })
         })
+    }
+
+    /**
+     * Returns the HTTP URL that the Cast device can use to stream a local file.
+     * Replaces localhost with the machine's first non-loopback IPv4 address.
+     */
+    getFileUrl(filePath, lanIp) {
+        const host = lanIp || 'localhost'
+        return `http://${host}:${this.port}/file?path=${encodeURIComponent(filePath)}`
     }
 
     /**
@@ -572,7 +691,7 @@ export class Transcoder {
     /**
      * Start FFmpeg transcoding process
      */
-    async startTranscoding(filePath, hash, isRetry = false) {
+    async startTranscoding(filePath, hash, isRetry = false, options = {}) {
         if (this.activeTranscodes.has(hash)) return // Already running
         await this.encoderReady // Ensure encoder detection has completed
 
@@ -598,9 +717,13 @@ export class Transcoder {
 
         const audioStreams = (metadata?.streams || []).filter((s) => s?.codec_type === 'audio')
         const hasMultiAudio = audioStreams.length > 1
+        const selectedAudioTrack = Number.isFinite(options?.selectedAudioTrack)
+            ? Math.max(0, Math.min(options.selectedAudioTrack, Math.max(audioStreams.length - 1, 0)))
+            : null
 
         const encodedSource = encodeURIComponent(filePath)
-        const videoUri = `playlist.m3u8?file=${encodedSource}`
+        const audioTrackQuery = selectedAudioTrack != null ? `&audioTrack=${selectedAudioTrack}` : ''
+        const videoUri = `playlist.m3u8?file=${encodedSource}${audioTrackQuery}`
         const audioRenditions = hasMultiAudio
             ? audioStreams.map((stream, idx) => {
                 const language = stream?.tags?.language || null
@@ -610,10 +733,12 @@ export class Transcoder {
                 if (title) nameParts.push(title)
                 const name = nameParts.join(' - ') || `Track ${idx + 1}`
                 return {
-                    uri: `audio_${idx}.m3u8?file=${encodedSource}`,
+                    uri: `audio_${idx}.m3u8?file=${encodedSource}${audioTrackQuery}`,
                     name,
                     language,
-                    isDefault: Boolean(stream?.disposition?.default)
+                    isDefault: selectedAudioTrack != null
+                        ? idx === selectedAudioTrack
+                        : Boolean(stream?.disposition?.default)
                 }
             })
             : []
@@ -635,63 +760,53 @@ export class Transcoder {
                 cacheDir,
                 inputPath,
                 audioStreams,
+                selectedAudioTrack,
                 isRetry,
                 useRepaired
             })
         }
 
         return new Promise((resolve, reject) => {
-            // Build FFmpeg command with platform-specific encoder
-            const outputOptions = [
-                `-c:v ${this.encoder}`,
-                '-b:v 10M', // Target high bitrate
-                '-maxrate 12M', // Cap max bitrate to prevent spikes
-                '-bufsize 24M', // Buffer size for rate control
-                '-c:a aac',
-                '-b:a 128k',
-                '-ac 2', // Keep forced stereo
-                '-ar 48000', // Keep standard sample rate
-                '-hls_time 6', // 6 second segments
-                '-hls_list_size 0', // VOD mode (keep all segments)
-                '-hls_segment_filename', join(cacheDir, 'segment_%03d.ts'),
-                '-start_number 0',
-                '-sn' // Disable subtitles
-            ]
+            // Explicit stream mapping excludes subtitle/attachment streams entirely —
+            // relying on -sn is not sufficient for MKVs with bitmap subs (PGS/VOBSUB)
+            // or embedded font attachments, which can cause FFmpeg to error before
+            // writing any segments even though they wouldn't appear in the output.
+            const audioMap = audioStreams.length > 0 ? ['-map', '0:a:0'] : []
+            const outputOptions = ['-map', '0:v:0', ...audioMap]
 
             if (useRepaired) {
-                // INSTANT MODE: Stream copy if file is already repaired/standardized
-                outputOptions.push(
-                    '-c copy', // Copy video and audio streams
-                    '-map 0', // Map all streams
-                    '-f hls'
-                )
+                // Repaired file (HandBrake MP4): stream-copy since codecs are already
+                // Chromecast-compatible. Explicit maps above exclude any stray streams.
+                outputOptions.push('-c', 'copy')
             } else {
-                // NORMAL MODE: Transcode with standard settings
                 outputOptions.push(
-                    `-c:v ${this.encoder}`,
-                    '-b:v 10M', // Target high bitrate
-                    '-maxrate 12M', // Cap max bitrate to prevent spikes
-                    '-bufsize 24M', // Buffer size for rate control
-                    '-c:a aac',
-                    '-b:a 128k',
-                    '-ac 2', // Keep forced stereo
-                    '-ar 48000', // Keep standard sample rate
-                    '-force_key_frames', 'expr:gte(t,n_forced*6)', // Force keyframe every 6 seconds
-                    '-sc_threshold', '0', // Disable scene change detection for strict keyframes
-                    '-fflags', '+genpts', // Generate presentation timestamps
-                    '-vsync', '0' // Passthrough video sync (prevent dropping/duping)
+                    `-c:v`, this.encoder,
                 )
-
-                // Optimize for software encoding if fallback is used
-                if (this.encoder === 'libx264') {
-                    outputOptions.splice(outputOptions.indexOf(`-c:v ${this.encoder}`), 0, '-preset ultrafast')
-                }
-
-                // Add software fallback for hardware encoders
-                if (this.encoder !== 'libx264') {
-                    outputOptions.push('-allow_sw 1')
-                }
+                if (this.encoder === 'libx264') outputOptions.push('-preset', 'ultrafast')
+                else outputOptions.push('-allow_sw', '1')
+                outputOptions.push(
+                    // Chromecast rejects 10-bit H.264 output from 10-bit sources.
+                    '-pix_fmt', 'yuv420p',
+                    '-b:v', '10M',
+                    '-maxrate', '12M',
+                    '-bufsize', '24M',
+                    '-force_key_frames', 'expr:gte(t,n_forced*6)',
+                    '-sc_threshold', '0',
+                    '-fflags', '+genpts',
+                    '-vsync', '0',
+                    '-c:a', 'aac',
+                    '-b:a', '128k',
+                    '-ac', '2',
+                    '-ar', '48000'
+                )
             }
+
+            outputOptions.push(
+                '-hls_time', '6',
+                '-hls_list_size', '0',
+                '-hls_segment_filename', join(cacheDir, 'segment_%03d.ts'),
+                '-start_number', '0'
+            )
 
             const command = ffmpeg(inputPath)
                 .inputOptions(this.encoder !== 'libx264' && !useRepaired ? ['-hwaccel auto'] : [])
@@ -753,149 +868,115 @@ export class Transcoder {
         })
     }
 
-    startMultiAudioTranscoding({ filePath, hash, cacheDir, inputPath, audioStreams, isRetry, useRepaired }) {
-        const createdCommands = []
+    startMultiAudioTranscoding({ filePath, hash, cacheDir, inputPath, audioStreams, selectedAudioTrack = null, isRetry, useRepaired }) {
+        // Single FFmpeg process with multiple HLS outputs.
+        //
+        // The video playlist muxes video + the default audio track together.
+        // This is essential for Chromecast compatibility: some firmware versions
+        // silently ignore EXT-X-MEDIA audio renditions when the video variant
+        // segments contain no audio at all. By embedding the default audio in the
+        // video segments, Chromecast always has audio to play regardless of whether
+        // it loads the EXT-X-MEDIA renditions.
+        //
+        // All audio tracks are also produced as separate EXT-X-MEDIA playlists so
+        // that hls.js in the native player can still offer full track switching.
 
-        const killAll = () => {
-            this.intentionalStops.add(hash)
-            for (const cmd of createdCommands) {
-                try {
-                    cmd.kill('SIGKILL')
-                } catch {}
-            }
+        // Find which audio stream is flagged as default; fall back to the first one.
+        const defaultAudioIdx = audioStreams.findIndex(s => s.disposition?.default === 1)
+        const defaultIdx = Number.isFinite(selectedAudioTrack) && selectedAudioTrack >= 0 && selectedAudioTrack < audioStreams.length
+            ? selectedAudioTrack
+            : (defaultAudioIdx >= 0 ? defaultAudioIdx : 0)
+        const defaultStream = audioStreams[defaultIdx]
+
+        const args = []
+
+        if (this.encoder !== 'libx264' && !useRepaired) {
+            args.push('-hwaccel', 'auto')
         }
+        args.push('-i', inputPath)
 
-        const baseHlsOptions = (segmentPattern) => ([
-            '-hls_time 6',
-            '-hls_list_size 0',
-            '-hls_flags independent_segments+split_by_time',
-            '-hls_segment_filename', segmentPattern,
-            '-start_number 0',
-            '-sn'
-        ])
+        // Video output — mux video + default audio into the same segments so
+        // Chromecast always has an audio source even if EXT-X-MEDIA is ignored.
+        args.push('-map', '0:v:0', '-map', `0:${defaultStream.index}`, '-c:v', this.encoder)
+        if (this.encoder === 'libx264') args.push('-preset', 'ultrafast')
+        if (this.encoder !== 'libx264') args.push('-allow_sw', '1')
+        args.push(
+            '-b:v', '10M', '-maxrate', '12M', '-bufsize', '24M',
+            // Force 8-bit 4:2:0 output for Cast-compatible HLS variants.
+            '-pix_fmt', 'yuv420p',
+            '-force_key_frames', 'expr:gte(t,n_forced*6)',
+            '-sc_threshold', '0', '-fflags', '+genpts', '-vsync', '0',
+            '-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-ar', '48000',
+            '-hls_time', '6', '-hls_list_size', '0',
+            '-hls_flags', 'independent_segments+split_by_time',
+            '-hls_segment_filename', join(cacheDir, 'segment_%03d.ts'),
+            '-start_number', '0', '-f', 'hls',
+            join(cacheDir, 'playlist.m3u8')
+        )
 
-        const makeVideoCommand = (resolve) => {
-            const outputOptions = [
-                '-map 0:v:0',
-                '-an',
-                '-dn',
-                `-c:v ${this.encoder}`,
-                '-b:v 10M',
-                '-maxrate 12M',
-                '-bufsize 24M',
-                '-force_key_frames', 'expr:gte(t,n_forced*6)',
-                '-sc_threshold', '0',
-                '-fflags', '+genpts',
-                '-vsync', '0',
-                ...baseHlsOptions(join(cacheDir, 'segment_%03d.ts'))
-            ]
-
-            if (this.encoder === 'libx264') {
-                outputOptions.splice(outputOptions.indexOf(`-c:v ${this.encoder}`), 0, '-preset ultrafast')
-            }
-            if (this.encoder !== 'libx264') {
-                outputOptions.push('-allow_sw 1')
-            }
-
-            const command = ffmpeg(inputPath)
-                .inputOptions(this.encoder !== 'libx264' && !useRepaired ? ['-hwaccel auto'] : [])
-                .outputOptions(outputOptions)
-                .output(join(cacheDir, 'playlist.m3u8'))
-                .on('start', (cmd) => {
-                    console.log(`[Transcoder] Spawned (video): ${cmd}`)
-                    this.addActiveTranscode(hash, command)
-                    resolve()
-                })
-                .on('stderr', (stderrLine) => {
-                    if (stderrLine.includes('Error') || stderrLine.includes('Opening')) {
-                        console.log(`[FFmpeg:video] ${stderrLine}`)
-                    }
-                    if (!isRetry && !useRepaired && stderrLine.includes('Error submitting packet to decoder')) {
-                        console.error('[Transcoder] Detected fatal decoder error (video). Killing process to force fallback...')
-                        command.kill('SIGKILL')
-                    }
-                })
-                .on('error', async (err) => {
-                    console.error(`[Transcoder] Error (video): ${err.message}`)
-                    this.removeActiveTranscode(hash, command)
-
-                    if (this.intentionalStops.has(hash)) {
-                        console.log(`[Transcoder] Ignoring expected SIGKILL for ${hash}`)
-                        return
-                    }
-
-                    // Kill other processes and attempt repair fallback for the source file.
-                    killAll()
-
-                    if (!isRetry && !useRepaired && (
-                        err.message.includes('decoder') ||
-                        err.message.includes('Invalid data') ||
-                        err.message.includes('sigkill') ||
-                        err.message.includes('SIGKILL')
-                    )) {
-                        console.log('[Transcoder] Critical failure detected. Initiating Smart Fallback repair...')
-                        try {
-                            await this.repairFile(filePath, hash)
-                            await this.startTranscoding(filePath, hash, true)
-                        } catch (repairErr) {
-                            console.error('[Transcoder] Repair failed:', repairErr)
-                        }
-                    }
-                })
-                .on('end', () => {
-                    console.log(`[Transcoder] Finished (video): ${hash}`)
-                    this.removeActiveTranscode(hash, command)
-                })
-
-            createdCommands.push(command)
-            command.run()
-        }
-
-        const makeAudioCommand = (stream, idx) => {
-            const outputOptions = [
-                `-map 0:${stream.index}`,
-                '-vn',
-                '-dn',
-                '-c:a aac',
-                '-b:a 128k',
-                '-ac 2',
-                '-ar 48000',
-                ...baseHlsOptions(join(cacheDir, `audio_${idx}_%03d.ts`))
-            ]
-
-            const command = ffmpeg(inputPath)
-                .inputOptions(this.encoder !== 'libx264' && !useRepaired ? ['-hwaccel auto'] : [])
-                .outputOptions(outputOptions)
-                .output(join(cacheDir, `audio_${idx}.m3u8`))
-                .on('start', (cmd) => {
-                    console.log(`[Transcoder] Spawned (audio ${idx}): ${cmd}`)
-                    this.addActiveTranscode(hash, command)
-                })
-                .on('stderr', (stderrLine) => {
-                    if (stderrLine.includes('Error') || stderrLine.includes('Opening')) {
-                        console.log(`[FFmpeg:audio ${idx}] ${stderrLine}`)
-                    }
-                })
-                .on('error', (err) => {
-                    console.error(`[Transcoder] Error (audio ${idx}): ${err.message}`)
-                    this.removeActiveTranscode(hash, command)
-                    if (this.intentionalStops.has(hash)) return
-                    killAll()
-                })
-                .on('end', () => {
-                    console.log(`[Transcoder] Finished (audio ${idx}): ${hash}`)
-                    this.removeActiveTranscode(hash, command)
-                })
-
-            createdCommands.push(command)
-            command.run()
+        // One audio-only output per track (all tracks, including default) so that
+        // hls.js can offer full track switching in the native player.
+        for (let idx = 0; idx < audioStreams.length; idx++) {
+            args.push(
+                '-map', `0:${audioStreams[idx].index}`,
+                '-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-ar', '48000',
+                '-hls_time', '6', '-hls_list_size', '0',
+                '-hls_flags', 'independent_segments+split_by_time',
+                '-hls_segment_filename', join(cacheDir, `audio_${idx}_%03d.ts`),
+                '-start_number', '0', '-f', 'hls',
+                join(cacheDir, `audio_${idx}.m3u8`)
+            )
         }
 
         return new Promise((resolve) => {
-            makeVideoCommand(resolve)
-            for (let idx = 0; idx < audioStreams.length; idx += 1) {
-                makeAudioCommand(audioStreams[idx], idx)
-            }
+            let started = false
+            const proc = spawn(ffmpegBinaryPath, args)
+            const handle = { kill: (signal) => proc.kill(signal) }
+
+            proc.stderr.on('data', (chunk) => {
+                const line = chunk.toString()
+                if (!started) {
+                    started = true
+                    this.addActiveTranscode(hash, handle)
+                    console.log(`[Transcoder] Spawned multi-audio: ${hash}`)
+                    resolve()
+                }
+                if (line.includes('Error') || line.includes('Opening')) {
+                    console.log(`[FFmpeg:multi] ${line.trim()}`)
+                }
+                if (!isRetry && !useRepaired && line.includes('Error submitting packet to decoder')) {
+                    console.error('[Transcoder] Fatal decoder error (multi). Killing...')
+                    proc.kill('SIGKILL')
+                }
+            })
+
+            proc.on('error', (err) => {
+                if (!started) { started = true; resolve() }
+                console.error(`[Transcoder] Multi-audio spawn error: ${err.message}`)
+                this.removeActiveTranscode(hash, handle)
+            })
+
+            proc.on('close', async (code) => {
+                if (!started) { started = true; resolve() }
+                this.removeActiveTranscode(hash, handle)
+
+                if (this.intentionalStops.has(hash)) return
+
+                if (code === 0) {
+                    console.log(`[Transcoder] Multi-audio finished: ${hash}`)
+                    return
+                }
+
+                if (!isRetry && !useRepaired) {
+                    console.log('[Transcoder] Multi-audio failed, attempting repair...')
+                    try {
+                        await this.repairFile(filePath, hash)
+                        await this.startTranscoding(filePath, hash, true)
+                    } catch (repairErr) {
+                        console.error('[Transcoder] Repair failed:', repairErr)
+                    }
+                }
+            })
         })
     }
 
