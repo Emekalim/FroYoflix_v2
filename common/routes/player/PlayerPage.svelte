@@ -76,6 +76,12 @@
     buildWatchingActivity,
   } from "@/modules/playback/discordActivity.js";
   import {
+    buildMediaCacheKey,
+    buildProgressQuery,
+    clampTimeToDuration,
+    shouldAutoComplete,
+  } from "@/modules/playback/progress.js";
+  import {
     X,
     Minus,
     ArrowDown,
@@ -251,14 +257,13 @@
 
   function checkAudio() {
     volumeBoosted =
-      cache.getEntry(caches.HISTORY, "lastBoosted")?.[
-        `${media?.media?.id || media?.title || media?.parseObject?.title || media?.parseObject?.file_name}`
-      ]?.boosted || false;
+      cache.getEntry(caches.HISTORY, "lastBoosted")?.[buildMediaCacheKey(media)]
+        ?.boosted || false;
     if (volumeBoosted) {
       setupAudio();
       gain =
         cache.getEntry(caches.HISTORY, "lastBoosted")?.[
-          `${media?.media?.id || media?.title || media?.parseObject?.title || media?.parseObject?.file_name}`
+          buildMediaCacheKey(media)
         ]?.gain || 0;
       gainNode.gain.value = gain;
     } else {
@@ -287,7 +292,7 @@
 
   function checkSubtitle() {
     const lastSubtitle = cache.getEntry(caches.HISTORY, "lastSubtitle")?.[
-      `${media?.media?.id || media?.title || media?.parseObject?.title || media?.parseObject?.file_name}`
+      buildMediaCacheKey(media)
     ];
     if (subHeaders?.length && lastSubtitle) {
       if (lastSubtitle === "OFF") {
@@ -809,39 +814,9 @@
       }
     }
 
-    let animeProgress;
-    if (
-      !current?.media?.media?.id ||
-      !isValidNumber(current?.media?.episode) ||
-      current?.media?.failed ||
-      !media?.media?.id ||
-      !isValidNumber(media?.episode)
-    )
-      animeProgress = await getAnimeProgress({
-        name: current?.media?.parseObject?.anime_title
-          ? current?.media?.parseObject?.anime_title +
-            ((media?.season || current?.media?.parseObject?.anime_season
-              ? ` S${media?.season || current?.media?.parseObject?.anime_season}`
-              : "") +
-              (media?.episode || current?.media?.parseObject?.episode_number
-                ? ` E${media?.episode || current?.media?.parseObject?.episode_number}`
-                : ""))
-          : current?.name,
-      });
-    else
-      animeProgress = await getAnimeProgress({
-        name: current?.media?.parseObject?.anime_title
-          ? current?.media?.parseObject?.anime_title +
-            ((media?.season || current?.media?.parseObject?.anime_season
-              ? ` S${media?.season || current?.media?.parseObject?.anime_season}`
-              : "") +
-              (media?.episode || current?.media?.parseObject?.episode_number
-                ? ` E${media?.episode || current?.media?.parseObject?.episode_number}`
-                : ""))
-          : current?.name,
-        mediaId: current.media.media.id,
-        episode: current.media.episode,
-      });
+    const animeProgress = await getAnimeProgress(
+      buildProgressQuery(current, media),
+    );
     if (!animeProgress) return 0;
 
     return Math.max(Number(animeProgress.currentTime || 0) - 5, 0);
@@ -879,30 +854,17 @@
       targetTime = 0;
       video.currentTime = targetTime;
     }
-    if (
-      !current?.media?.media?.id ||
-      !isValidNumber(current?.media?.episode) ||
-      current?.media?.failed ||
-      !media?.media?.id ||
-      !isValidNumber(media?.episode)
-    )
+    const progressQuery = buildProgressQuery(current, media);
+    if (!progressQuery.mediaId)
       setAnimeProgress({
-        name: current?.media?.parseObject?.anime_title
-          ? current?.media?.parseObject?.anime_title +
-            ((media?.season || current?.media?.parseObject?.anime_season
-              ? ` S${media?.season || current?.media?.parseObject?.anime_season}`
-              : "") +
-              (media?.episode || current?.media?.parseObject?.episode_number
-                ? ` E${media?.episode || current?.media?.parseObject?.episode_number}`
-                : ""))
-          : current?.name,
+        name: progressQuery.name,
         currentTime: checkpointTime,
         safeduration: checkpointDuration,
       });
     else
       setAnimeProgress({
-        mediaId: current.media.media.id,
-        episode: current.media.episode,
+        mediaId: progressQuery.mediaId,
+        episode: progressQuery.episode,
         currentTime: checkpointTime,
         safeduration: checkpointDuration,
       });
@@ -947,13 +909,7 @@
   let targetTime = 0;
   $: progress = playbackDuration ? (displayedTime / playbackDuration) * 100 : 0;
   function clampPlaybackTime(time) {
-    const numericTime = Number(time);
-    if (!Number.isFinite(numericTime) || numericTime < 0) return 0;
-    const max = Number(playbackDuration);
-    if (Number.isFinite(max) && max > 0) {
-      return Math.max(0, Math.min(max, numericTime));
-    }
-    return numericTime;
+    return clampTimeToDuration(time, playbackDuration);
   }
   $: {
     if (wasPaused == null) {
@@ -1232,10 +1188,7 @@
     gain = value;
     cache.setEntry(caches.HISTORY, "lastBoosted", {
       ...(cache.getEntry(caches.HISTORY, "lastBoosted") || {}),
-      [media?.media?.id ||
-      media?.title ||
-      media?.parseObject?.title ||
-      media?.parseObject?.file_name]: { boosted: volumeBoosted, gain },
+      [buildMediaCacheKey(media)]: { boosted: volumeBoosted, gain },
     });
   }
   function toggleGain() {
@@ -1249,10 +1202,7 @@
     volumeBoosted = !volumeBoosted;
     cache.setEntry(caches.HISTORY, "lastBoosted", {
       ...(cache.getEntry(caches.HISTORY, "lastBoosted") || {}),
-      [media?.media?.id ||
-      media?.title ||
-      media?.parseObject?.title ||
-      media?.parseObject?.file_name]: { boosted: volumeBoosted, gain },
+      [buildMediaCacheKey(media)]: { boosted: volumeBoosted, gain },
     });
   }
   async function toggleMute() {
@@ -2511,15 +2461,14 @@
   }
 
   function checkCompletionByTime(currentTime, safeduration) {
-    const threshold = $settings.playerAutocompleteThreshold / 100;
     if (
-      safeduration &&
-      currentTime &&
-      video?.readyState &&
-      currentTime >= safeduration * threshold &&
-      (media?.media?.episodes ||
-        media?.media?.nextAiringEpisode?.episode >=
-          (media.episodeRange?.last || media.episode))
+      shouldAutoComplete({
+        currentTime,
+        duration: safeduration,
+        readyState: video?.readyState,
+        thresholdPercent: $settings.playerAutocompleteThreshold,
+        media,
+      })
     ) {
       debug(
         `Marking current episode as completed as it has met the ${$settings.playerAutocompleteThreshold}% threshold.`,
@@ -3448,10 +3397,7 @@
                   setTimeout(() => subs?.renderer?.resize(), 200);
                   cache.setEntry(caches.HISTORY, "lastSubtitle", {
                     ...(cache.getEntry(caches.HISTORY, "lastSubtitle") || {}),
-                    [media?.media?.id ||
-                    media?.title ||
-                    media?.parseObject?.title ||
-                    media?.parseObject?.file_name]: "OFF",
+                    [buildMediaCacheKey(media)]: "OFF",
                   });
                 }}
                 class="pb-5"
@@ -3484,10 +3430,7 @@
                       cache.setEntry(caches.HISTORY, "lastSubtitle", {
                         ...(cache.getEntry(caches.HISTORY, "lastSubtitle") ||
                           {}),
-                        [media?.media?.id ||
-                        media?.title ||
-                        media?.parseObject?.title ||
-                        media?.parseObject?.file_name]: trackName,
+                        [buildMediaCacheKey(media)]: trackName,
                       });
                     }}
                     class="pb-5"
