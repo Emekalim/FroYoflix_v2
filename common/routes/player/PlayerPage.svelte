@@ -39,7 +39,7 @@
 
   import { w2gEmitter, state } from "@/routes/w2g/WatchTogetherPage.svelte";
   import ManagerModal from "@/modals/manager/ManagerModal.svelte";
-  import Keybinds, { loadWithDefaults, condition } from "svelte-keybinds";
+  import Keybinds, { condition } from "svelte-keybinds";
   import { SUPPORTS } from "@/modules/support.js";
   import "rvfc-polyfill";
   import { IPC, ELECTRON } from "@/modules/bridge.js";
@@ -90,12 +90,9 @@
     ArrowUp,
     Captions,
     Cast,
-    CircleHelp,
-    Contrast,
     FastForward,
     Keyboard,
     EllipsisVertical,
-    List,
     Eye,
     FilePlus2,
     ListMusic,
@@ -106,16 +103,11 @@
     PictureInPicture,
     PictureInPicture2,
     Play,
-    Proportions,
-    RefreshCcw,
     Rewind,
-    RotateCcw,
     RotateCw,
-    ScreenShare,
     SkipBack,
     SkipForward,
     Users,
-    Volume1,
     Volume2,
     VolumeX,
     SlidersVertical,
@@ -123,6 +115,7 @@
     Milestone,
     Settings,
   } from "lucide-svelte";
+  import { registerPlayerKeybinds } from "@/routes/player/components/keybinds.js";
   import Debug from "debug";
   const debug = Debug("ui:player");
 
@@ -1563,207 +1556,48 @@
   }
   let fitWidth = false;
   let showKeybinds = false;
-  loadWithDefaults({
-    KeyX: {
-      fn: () => !viewAnime && screenshot(),
-      id: "screenshot_monitor",
-      icon: ScreenShare,
-      type: "icon",
-      desc: "Save Screenshot to Clipboard",
+  registerPlayerKeybinds({
+    isViewAnime: () => viewAnime,
+    canCast: ELECTRON && !SUPPORTS.isAndroid,
+    screenshot,
+    toggleStats,
+    toggleNowPlaying: () => {
+      if (media?.media) modal.toggle(modal.ANIME_DETAILS, media.media);
     },
-    KeyI: {
-      fn: () => !viewAnime && toggleStats(),
-      icon: List,
-      id: "list",
-      type: "icon",
-      desc: "Toggle Stats",
+    toggleFileManager: () => {
+      resolvePrompt = false;
+      modal.toggle(modal.FILE_MANAGER);
     },
-    KeyO: {
-      fn: () => {
-        if (media?.media) modal.toggle(modal.ANIME_DETAILS, media.media);
-      },
-      icon: Eye,
-      id: "eye",
-      type: "icon",
-      desc: "Toggle Now Playing",
+    toggleKeybindOverlay: () => (showKeybinds = !showKeybinds),
+    playPause,
+    playNext,
+    playLast,
+    toggleDeband: () => ($settings.playerDeband = !$settings.playerDeband),
+    toggleMute,
+    togglePopout,
+    toggleFullscreen,
+    skip,
+    toggleFitWidth: () => (fitWidth = !fitWidth),
+    toggleCast,
+    cycleSubtitles,
+    toggleGain,
+    rewind,
+    forward,
+    volumeUp: () => {
+      if (!castPlaybackActive && $volumeBoosted)
+        setGain({ target: { value: Math.min(3, $gain + 0.05) } });
+      else adjustPlaybackVolume(0.05);
     },
-    KeyH: {
-      fn: () => {
-        if (!viewAnime) {
-          resolvePrompt = false;
-          modal.toggle(modal.FILE_MANAGER);
-        }
-      },
-      icon: SquarePen,
-      id: "squarepen",
-      type: "icon",
-      desc: "Toggle File Manager",
+    volumeDown: () => {
+      if (!castPlaybackActive && $volumeBoosted)
+        setGain({ target: { value: Math.max(0, $gain - 0.05) } });
+      else adjustPlaybackVolume(-0.05);
     },
-    Backquote: {
-      fn: () => !viewAnime && (showKeybinds = !showKeybinds),
-      id: "help_outline",
-      icon: CircleHelp,
-      type: "icon",
-      desc: "Toggle Keybinds",
-    },
-    Space: {
-      fn: () => !viewAnime && playPause(),
-      id: "play_arrow",
-      play: Play,
-      type: "icon",
-      desc: "Play/Pause",
-    },
-    KeyN: {
-      fn: () => !viewAnime && playNext(),
-      id: "skip_next",
-      icon: SkipForward,
-      type: "icon",
-      desc: "Next Episode",
-    },
-    KeyB: {
-      fn: () => !viewAnime && playLast(),
-      id: "skip_previous",
-      icon: SkipBack,
-      type: "icon",
-      desc: "Previous Episode",
-    },
-    KeyA: {
-      fn: () =>
-        !viewAnime && ($settings.playerDeband = !$settings.playerDeband),
-      id: "deblur",
-      icon: Contrast,
-      type: "icon",
-      desc: "Toggle Video Debanding",
-    },
-    KeyM: {
-      fn: () => !viewAnime && toggleMute(),
-      id: "volume_off",
-      icon: VolumeX,
-      type: "icon",
-      desc: "Toggle Mute",
-    },
-    KeyP: {
-      fn: () => !viewAnime && togglePopout(),
-      id: "picture_in_picture",
-      icon: PictureInPicture2,
-      type: "icon",
-      desc: "Toggle Picture in Picture",
-    },
-    KeyF: {
-      fn: () => !viewAnime && toggleFullscreen(),
-      id: "fullscreen",
-      icon: Maximize,
-      type: "icon",
-      desc: "Toggle Fullscreen",
-    },
-    KeyS: {
-      fn: () => !viewAnime && skip(),
-      id: "+90",
-      desc: "Skip Intro/90s",
-    },
-    KeyW: {
-      fn: () => !viewAnime && (fitWidth = !fitWidth),
-      id: "fit_width",
-      icon: Proportions,
-      type: "icon",
-      desc: "Toggle Video Cover",
-    },
-    KeyD: ELECTRON && !SUPPORTS.isAndroid
-      ? {
-          fn: () => !viewAnime && toggleCast(),
-          id: "cast",
-          icon: Cast,
-          type: "icon",
-          desc: "Toggle Cast",
-        }
-      : undefined,
-    KeyC: {
-      fn: () => !viewAnime && cycleSubtitles(),
-      id: "subtitles",
-      icon: Captions,
-      type: "icon",
-      desc: "Cycle Subtitles",
-    },
-    KeyV: {
-      fn: () => !viewAnime && toggleGain(),
-      id: "toggle_gain",
-      icon: SlidersVertical,
-      type: "icon",
-      desc: "Toggle Volume Limit Increase",
-    },
-    ArrowLeft: {
-      fn: (e) => {
-        if (viewAnime) return;
-        e.stopImmediatePropagation();
-        e.preventDefault();
-        rewind();
-      },
-      id: "fast_rewind",
-      icon: Rewind,
-      type: "icon",
-      desc: "Rewind",
-    },
-    ArrowRight: {
-      fn: (e) => {
-        if (viewAnime) return;
-        e.stopImmediatePropagation();
-        e.preventDefault();
-        forward();
-      },
-      id: "fast_forward",
-      icon: FastForward,
-      type: "icon",
-      desc: "Seek",
-    },
-    ArrowUp: {
-      fn: (e) => {
-        if (viewAnime) return;
-        e.stopImmediatePropagation();
-        e.preventDefault();
-        if (!castPlaybackActive && $volumeBoosted)
-          setGain({ target: { value: Math.min(3, $gain + 0.05) } });
-        else adjustPlaybackVolume(0.05);
-      },
-      id: "volume_up",
-      icon: Volume2,
-      type: "icon",
-      desc: "Volume Up",
-    },
-    ArrowDown: {
-      fn: (e) => {
-        if (viewAnime) return;
-        e.stopImmediatePropagation();
-        e.preventDefault();
-        if (!castPlaybackActive && $volumeBoosted)
-          setGain({ target: { value: Math.max(0, $gain - 0.05) } });
-        else adjustPlaybackVolume(-0.05);
-      },
-      id: "volume_down",
-      icon: Volume1,
-      type: "icon",
-      desc: "Volume Down",
-    },
-    BracketLeft: {
-      fn: () => !viewAnime && (playbackRate = video.defaultPlaybackRate -= 0.1),
-      id: "history",
-      icon: RotateCcw,
-      type: "icon",
-      desc: "Decrease Playback Rate",
-    },
-    BracketRight: {
-      fn: () => !viewAnime && (playbackRate = video.defaultPlaybackRate += 0.1),
-      id: "update",
-      icon: RotateCw,
-      type: "icon",
-      desc: "Increase Playback Rate",
-    },
-    Backslash: {
-      fn: () => !viewAnime && (playbackRate = video.defaultPlaybackRate = 1),
-      icon: RefreshCcw,
-      id: "schedule",
-      type: "icon",
-      desc: "Reset Playback Rate",
-    },
+    decreasePlaybackRate: () =>
+      (playbackRate = video.defaultPlaybackRate -= 0.1),
+    increasePlaybackRate: () =>
+      (playbackRate = video.defaultPlaybackRate += 0.1),
+    resetPlaybackRate: () => (playbackRate = video.defaultPlaybackRate = 1),
   });
 
   function getBurnIn() {
