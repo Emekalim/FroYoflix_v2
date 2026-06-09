@@ -158,9 +158,6 @@
   let bufferTimeout = null;
   let subHeaders = null;
   let pip = false;
-  // const presentationRequest = null
-  // const presentationConnection = null
-  // const canCast = false
   let isFullscreen = false;
   let ended = false;
   let gain = 0;
@@ -313,19 +310,6 @@
       }
     }
   }
-
-  // if ('PresentationRequest' in window) {
-  //   const handleAvailability = aval => {
-  //     canCast = !!aval
-  //   }
-  //   presentationRequest = new PresentationRequest(['build/cast.html'])
-  //   presentationRequest.addEventListener('connectionavailable', e => initCast(e))
-  //   navigator.presentation.defaultRequest = presentationRequest
-  //   presentationRequest.getAvailability().then(aval => {
-  //     aval.onchange = e => handleAvailability(e.target.value)
-  //     handleAvailability(aval.value)
-  //   })
-  // }
 
   // document.fullscreenElement isn't reactive
   let orientationLockable = true; // might as well stop trying to lock the orientation when the device doesn't support it.
@@ -1875,16 +1859,16 @@
     },
   });
 
-  function getBurnIn(noSubs) {
+  function getBurnIn() {
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d");
     let loop = null;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    if (!noSubs) subs.renderer.resize(video.videoWidth, video.videoHeight);
+    subs.renderer.resize(video.videoWidth, video.videoHeight);
     const renderFrame = () => {
       context.drawImage(deband ? deband.canvas : video, 0, 0);
-      if (!noSubs && canvas.width && canvas.height)
+      if (canvas.width && canvas.height)
         context.drawImage(
           subs.renderer?._canvas,
           0,
@@ -1896,70 +1880,13 @@
     };
     renderFrame();
     const destroy = () => {
-      if (!noSubs) subs.renderer.resize();
+      subs.renderer.resize();
       video.cancelVideoFrameCallback(loop);
       canvas.remove();
     };
     container.append(canvas);
     return { stream: canvas.captureStream(), destroy };
   }
-
-  // function initCast (event) {
-  //   // these quality settings are likely to make cast overheat, oh noes!
-  //   let peer = new Peer({
-  //     polite: true,
-  //     quality: {
-  //       audio: {
-  //         stereo: 1,
-  //         'sprop-stereo': 1,
-  //         maxaveragebitrate: 510000,
-  //         maxplaybackrate: 510000,
-  //         cbr: 0,
-  //         useinbandfec: 1,
-  //         usedtx: 1,
-  //         maxptime: 20,
-  //         minptime: 10
-  //       },
-  //       video: {
-  //         bitrate: 2000000,
-  //         codecs: ['VP9', 'VP8', 'H264']
-  //       }
-  //     }
-  //   })
-
-  //   presentationConnection = event.connection
-  //   presentationConnection.addEventListener('terminate', () => {
-  //     presentationConnection = null
-  //     peer = null
-  //   })
-
-  //   peer.signalingPort.onmessage = ({ data }) => {
-  //     presentationConnection.send(data)
-  //   }
-
-  //   presentationConnection.addEventListener('message', ({ data }) => {
-  //     peer.signalingPort.postMessage(data)
-  //   })
-
-  //   peer.dc.onopen = () => {
-  //     if (peer && presentationConnection) {
-  //       const tracks = []
-  //       const videostream = video.captureStream()
-  //       if (true) {
-  //         // TODO: check if cast supports codecs
-  //         const { stream, destroy } = getBurnIn(!subs?.renderer)
-  //         tracks.push(stream.getVideoTracks()[0], videostream.getAudioTracks()[0])
-  //         presentationConnection.addEventListener('terminate', destroy)
-  //       } else {
-  //         tracks.push(videostream.getVideoTracks()[0], videostream.getAudioTracks()[0])
-  //       }
-  //       for (const track of tracks) {
-  //         peer.pc.addTrack(track, videostream)
-  //       }
-  //       paused = false // video pauses for some reason
-  //     }
-  //   }
-  // }
 
   function immersePlayer() {
     if (safeduration - currentTime !== 0) {
@@ -2676,29 +2603,6 @@
     };
   }
 
-  // const isWindows = navigator.appVersion.includes('Windows')
-  // let innerWidth, innerHeight
-  const menubarOffset = 0;
-  // $: calcMenubarOffset(innerWidth, innerHeight, videoWidth, videoHeight)
-  // function calcMenubarOffset (innerWidth, innerHeight, videoWidth, videoHeight) {
-  //   // outerheight resize and innerheight resize is mutual, additionally update on metadata and app state change
-  //   if (videoWidth && videoHeight) {
-  //     // so windows is very dumb, and calculates windowed mode as if it was window XP, with the old bars, but not when maximised
-  //     const isMaximised = screen.availWidth === window.outerWidth && screen.availHeight === window.outerHeight
-  //     const menubar = Math.max(0, isWindows && !isMaximised ? window.outerHeight - innerHeight - 8 : window.outerHeight - innerHeight)
-  //     // element ratio calc
-  //     const videoRatio = videoWidth / videoHeight
-  //     const { offsetWidth, offsetHeight } = video
-  //     const elementRatio = offsetWidth / offsetHeight
-  //     // video is shorter than element && has space for menubar offset
-  //     if (!document.fullscreenElement && menubar && elementRatio <= videoRatio && offsetHeight - offsetWidth / videoRatio > menubar) {
-  //       menubarOffset = (menubar / 2) * -1
-  //     } else {
-  //       menubarOffset = 0
-  //     }
-  //   }
-  // }
-
   const showOptions = writable(false);
   function toggleDropdown({ target }) {
     target.classList.toggle("active");
@@ -2975,7 +2879,6 @@
   <video
     crossorigin="anonymous"
     class="position-absolute h-full w-full"
-    style={`margin-top: ${menubarOffset}px`}
     preload="auto"
     {src}
     bind:videoHeight
