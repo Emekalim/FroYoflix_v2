@@ -199,6 +199,10 @@ export const DOMPARSER = (typeof DOMParser !== 'undefined') && DOMParser.prototy
 
 export const sleep = t => new Promise(resolve => setTimeout(resolve, t).unref?.())
 
+const defaultTorrentPath = SUPPORTS.isAndroid
+  ? undefined
+  : (globalThis?.window?.env?.DEFAULT_TORRENT_PATH || globalThis?.env?.DEFAULT_TORRENT_PATH || undefined)
+
 export function toTS (sec, full) {
   if (isNaN(sec) || sec < 0) {
     switch (full) {
@@ -583,7 +587,7 @@ export const defaults = {
   hentaiAnnounce: 'none',
   customSections: [['Romance', ['Romance'], [], [], []], ['Isekai Comedy', ['Comedy'], ['Isekai'], [], []]],
   torrentSpeed: 5,
-  torrentPersist: false,
+  torrentPersist: true,
   torrentDHT: false,
   torrentPeX: false,
   torrentUTP: false,
@@ -614,7 +618,7 @@ export const defaults = {
   closeAction: 'Prompt',
   queryComplexity: 'Complex',
   expandingSidebar: false,
-  torrentPathNew: undefined,
+  torrentPathNew: defaultTorrentPath,
   donate: true,
   font: undefined,
   angle: 'default',

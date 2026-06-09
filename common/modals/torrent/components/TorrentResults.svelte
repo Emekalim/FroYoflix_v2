@@ -29,6 +29,7 @@
   import MediaResolver from "@/modules/resolver/MediaResolver.js";
   import { anilistClient } from "@/modules/anilist.js";
   import { click } from "@/modules/click.js";
+  import { getTorrentState, getTorrentStateLabel } from "@/modules/torrentState.js";
   import { toast } from "svelte-sonner";
   import {
     X,
@@ -350,7 +351,14 @@
         parseObject: (await anitomyscript(title))?.[0],
         source: {
           managed: true,
-          name: `Local (${torrent.staging ? "Staging" : torrent.seeding ? "Seeding" : torrent.current ? "Now Playing" : "Completed"})`,
+          name: `Local (${getTorrentStateLabel(
+            getTorrentState(torrent, {
+              current: !!torrent.current,
+              completed: completedTorrents.value.some((entry) => entry.infoHash === torrent.infoHash),
+              streamedDownload: settings.value.torrentStreamedDownload,
+            }),
+            { currentLabel: "Now Playing" },
+          )})`,
         },
       });
     }

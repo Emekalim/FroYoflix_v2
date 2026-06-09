@@ -29,6 +29,19 @@ function ensureArray(value) {
   return Array.isArray(value) ? value : value ? [value] : []
 }
 
+function libraryRecentTime(item) {
+  return Number(
+    item?.preferredFile?.lastSeenAt ||
+    item?.lastSeenAt ||
+    item?.preferredFile?.importedAt ||
+    item?.importedAt ||
+    item?.preferredFile?.mtime ||
+    item?.mtime ||
+    item?.updatedAt ||
+    0
+  )
+}
+
 const LIBRARY_VERSION_DEBOUNCE_MS = 200
 let libraryVersionBumpTimer = null
 function bumpLibraryVersionSoon() {
@@ -774,7 +787,7 @@ class LibraryRepository {
     items.sort((a, b) => {
       if (sort === 'title') return String(a.canonicalTitle || '').localeCompare(String(b.canonicalTitle || ''))
       if (sort === 'watch') return Number(b.watch?.lastPlayedAt || 0) - Number(a.watch?.lastPlayedAt || 0)
-      return Number(b.preferredFile?.importedAt || b.updatedAt || 0) - Number(a.preferredFile?.importedAt || a.updatedAt || 0)
+      return libraryRecentTime(b) - libraryRecentTime(a)
     })
 
     return items
@@ -815,10 +828,8 @@ class LibraryRepository {
     }
 
     const processed = [...showItems, ...sectionItems.filter(item => item.mediaType !== 'tv')]
-    processed.sort((a, b) =>
-      Number(b.preferredFile?.importedAt || b.updatedAt || 0) -
-      Number(a.preferredFile?.importedAt || a.updatedAt || 0)
-    )
+    processed.sort((a, b) => libraryRecentTime(b) - libraryRecentTime(a))
+    unmatched.sort((a, b) => libraryRecentTime(b) - libraryRecentTime(a))
 
     const data = [
       { title: 'Continue Watching', section: 'continue', items: processed.filter(i => i.watch && !i.watch.completed && (i.watch.percent || 0) > 0).slice(0, limit) },
@@ -846,6 +857,23 @@ class LibraryRepository {
     return {
       item,
       file: preferred,
+      subtitles: this.getSubtitlesForItem(item.itemId),
+      watch: this.getWatch(item.itemId)
+    }
+  }
+
+  findByTorrentInfoHash(infoHash) {
+    if (!infoHash) return null
+    const files = this.listPrefix(TYPE_PREFIX.file)
+      .filter(file => file.torrentInfoHash === infoHash && file.absolutePath && !['missing', 'duplicate'].includes(file.status))
+      .sort((a, b) => libraryRecentTime(b) - libraryRecentTime(a))
+    const file = files[0]
+    if (!file?.itemId) return null
+    const item = this.getItem(file.itemId)
+    if (!item) return null
+    return {
+      item,
+      file,
       subtitles: this.getSubtitlesForItem(item.itemId),
       watch: this.getWatch(item.itemId)
     }

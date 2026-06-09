@@ -175,6 +175,7 @@
   let startupPlaybackPending = false;
   let initialStartPosition = 0;
   let initialStartPositionApplied = false;
+  let handoffDurationFallback = null;
   $: cache.setEntry(caches.GENERAL, "volume", String(volume || 0));
   $: builtinSource =
     $playbackSession?.target === PLAYBACK_TARGET.BUILTIN
@@ -190,7 +191,16 @@
   $: if (builtinSource && builtinSource !== null) {
     media = getNowPlayingSnapshot(builtinSource);
   }
-  $: safeduration = isFinite(duration) ? duration : currentTime;
+  $: localDurationReady =
+    Number.isFinite(Number(duration)) &&
+    Number(duration) > 0 &&
+    Number(duration) !== 0.1;
+  $: if (localDurationReady && handoffDurationFallback != null) {
+    handoffDurationFallback = null;
+  }
+  $: safeduration = localDurationReady
+    ? Number(duration)
+    : handoffDurationFallback ?? currentTime;
   $: playbackDuration = castPlaybackActive
     ? Number(castMediaState?.duration) || safeduration
     : safeduration;
@@ -510,6 +520,7 @@
       debug("Video element not found in setCurrent");
       return;
     }
+    handoffDurationFallback = null;
     initialStartPosition = await resolveInitialStartPosition();
     targetTime = initialStartPosition;
     currentTime = initialStartPosition;
@@ -941,6 +952,15 @@
   let currentTime = 0;
   let targetTime = 0;
   $: progress = playbackDuration ? (displayedTime / playbackDuration) * 100 : 0;
+  function clampPlaybackTime(time) {
+    const numericTime = Number(time);
+    if (!Number.isFinite(numericTime) || numericTime < 0) return 0;
+    const max = Number(playbackDuration);
+    if (Number.isFinite(max) && max > 0) {
+      return Math.max(0, Math.min(max, numericTime));
+    }
+    return numericTime;
+  }
   $: {
     if (wasPaused == null) {
       if (castPlaybackActive) {
@@ -951,19 +971,24 @@
     }
   }
   async function handleMouseDown({ detail }) {
+    targetTime = clampPlaybackTime((detail / 100) * playbackDuration);
     if (wasPaused == null) {
       wasPaused = playbackPaused;
-      if (castPlaybackActive) await pauseCast().catch((error) => {
-        toast.error("Cast", { description: error?.message || "Failed to pause cast playback" });
-      });
-      else requestVideoPause();
+      if (castPlaybackActive) {
+        pauseCast().catch((error) => {
+          toast.error("Cast", {
+            description: error?.message || "Failed to pause cast playback",
+          });
+        });
+      } else requestVideoPause();
     }
-    targetTime = (detail / 100) * playbackDuration;
   }
   async function handleMouseUp() {
     if (castPlaybackActive) {
       try {
-        await seekCast(targetTime);
+        const seekTarget = clampPlaybackTime(targetTime);
+        targetTime = seekTarget;
+        await seekCast(seekTarget);
         if (!wasPaused) await playCast();
       } catch (error) {
         toast.error("Cast", { description: error?.message || "Failed to seek cast playback" });
@@ -1352,6 +1377,9 @@
     }
   }
   let castBusy = false;
+  let lastCastHandoffSnapshot = null;
+  let castRestoreInFlight = false;
+  let hadActiveCastSession = false;
 
   function getCastContentType(url, fallbackName = null) {
     const path = url?.split("?")[0]?.toLowerCase?.() || "";
@@ -1404,6 +1432,10 @@
   async function startCast(receiverId = null) {
     const url = current?.url;
     if (!url) return;
+    if (!receiverId && !($castState.receivers?.length ?? 0)) {
+      toast("Cast", { description: "No devices found." });
+      return;
+    }
     castBusy = true;
     try {
       await requestCastSession(receiverId);
@@ -1429,16 +1461,109 @@
     }
   }
 
+  async function waitForLocalPlaybackReady() {
+    if (!video) return false;
+    if (video.readyState >= 2) return true;
+
+    return new Promise((resolve) => {
+      let settled = false;
+      let timeout = null;
+
+      const cleanup = () => {
+        if (timeout) clearTimeout(timeout);
+        video?.removeEventListener?.("loadeddata", onReady);
+        video?.removeEventListener?.("canplay", onReady);
+        video?.removeEventListener?.("error", onError);
+      };
+
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(result);
+      };
+
+      const onReady = () => finish(true);
+      const onError = () => finish(false);
+
+      timeout = setTimeout(() => finish(video?.readyState >= 2), 4_000);
+      video?.addEventListener?.("loadeddata", onReady, { once: true });
+      video?.addEventListener?.("canplay", onReady, { once: true });
+      video?.addEventListener?.("error", onError, { once: true });
+    });
+  }
+
+  async function restoreLocalPlaybackAfterCast({
+    resumeTime,
+    resumeShouldPlay,
+    resumeDurationFallback,
+  }) {
+    const safeResumeTime = clampPlaybackTime(resumeTime);
+    const safeDurationFallback = Number(resumeDurationFallback);
+
+    if (Number.isFinite(safeDurationFallback) && safeDurationFallback > 0) {
+      handoffDurationFallback = safeDurationFallback;
+    }
+
+    targetTime = safeResumeTime;
+    currentTime = safeResumeTime;
+
+    const ready = await waitForLocalPlaybackReady();
+    if (video && ready) {
+      try {
+        video.currentTime = safeResumeTime;
+      } catch (error) {
+        debug("[Player] Failed to restore cast handoff time:", error);
+      }
+    }
+
+    if (resumeShouldPlay) {
+      await requestVideoPlay("cast handoff");
+    }
+  }
+
+  function snapshotCastHandoffState() {
+    if (!castPlaybackActive) return;
+    lastCastHandoffSnapshot = {
+      resumeTime: playbackCurrentTime,
+      resumeShouldPlay: !playbackPaused,
+      resumeDurationFallback: playbackDuration,
+    };
+  }
+
+  async function maybeRestoreLocalPlaybackAfterCastEnd() {
+    if (
+      castRestoreInFlight ||
+      !lastCastHandoffSnapshot ||
+      castPlaybackActive ||
+      !current
+    ) return;
+
+    castRestoreInFlight = true;
+    const handoffSnapshot = lastCastHandoffSnapshot;
+    lastCastHandoffSnapshot = null;
+    try {
+      await restoreLocalPlaybackAfterCast(handoffSnapshot);
+    } finally {
+      castRestoreInFlight = false;
+    }
+  }
+
+  $: if (castPlaybackActive) {
+    hadActiveCastSession = true;
+    snapshotCastHandoffState();
+  } else if (hadActiveCastSession) {
+    hadActiveCastSession = false;
+    Promise.resolve().then(() => maybeRestoreLocalPlaybackAfterCastEnd());
+  }
+
   async function toggleCast() {
     if (castBusy || !current) return;
-    if ($castState.sessionState === "SESSION_STARTED") {
+    if (castPlaybackActive) {
       castBusy = true;
       try {
-        const resumeTime = playbackCurrentTime;
+        snapshotCastHandoffState();
         await endCastSession();
-        targetTime = resumeTime;
-        currentTime = resumeTime;
-        if (video) video.currentTime = resumeTime;
       } catch (e) {
         toast.error("Cast", { description: e?.message || "Failed to end session" });
       } finally {
@@ -1876,8 +2001,8 @@
     if (bufferTimeout) {
       clearTimeout(bufferTimeout);
       bufferTimeout = null;
-      buffering = false;
     }
+    buffering = false;
     if (
       playerStartup.value?.active &&
       !startupBufferPending &&
@@ -1897,11 +2022,18 @@
     }
   }
 
+  function handleVideoSeeked() {
+    updatew2g();
+    syncBufferingWithPlayback();
+  }
+
   function showBuffering() {
     if (!startupBufferPending) {
       updateStartupStage(84, "Buffering stream", "Waiting for playback to start");
     }
+    if (bufferTimeout) clearTimeout(bufferTimeout);
     bufferTimeout = setTimeout(() => {
+      bufferTimeout = null;
       buffering = true;
       resetImmerse();
     }, 150);
@@ -2866,7 +2998,7 @@
       updatew2g();
       markPlaybackPlaying();
     }}
-    on:seeked={updatew2g}
+    on:seeked={handleVideoSeeked}
     on:timeupdate={() => createThumbnail()}
     on:timeupdate={checkCompletion}
     on:timeupdate={checkSkippableChapters}
@@ -3101,7 +3233,7 @@
         title="Exit"
         data-name="playPause"
         use:click={() => {
-          window.dispatchEvent(new CustomEvent("torrent-unload"));
+          window.dispatchEvent(new CustomEvent("torrent-stop-playback"));
           if ($page === page.PLAYER) page.navigateTo(page.HOME);
         }}
       >
@@ -3700,14 +3832,17 @@
             </div>
           </div>
         {:else}
-          <span
-            class="icon text-white ctrl mr-5 d-flex align-items-center"
-            title="Cast Video [D]"
-            data-name="toggleCast"
-            use:click={toggleCast}
-          >
-            <Cast size="2.5rem" strokeWidth={2.5} />
-          </span>
+          <div class="dropdown dropup with-arrow" use:click={toggleDropdown}>
+            <span
+              class="icon text-muted ctrl mr-5 d-flex align-items-center h-full"
+              title="No cast devices found"
+            >
+              <Cast size="2.5rem" strokeWidth={2.5} />
+            </span>
+            <div class="dropdown-menu dropdown-menu-right ctrl p-10 mr-15 text-nowrap">
+              <div class="text-muted">No devices found</div>
+            </div>
+          </div>
         {/if}
       {/if}
       {#if "pictureInPictureEnabled" in document}

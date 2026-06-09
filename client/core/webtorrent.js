@@ -184,6 +184,39 @@ export default class TorrentClient extends WebTorrent {
     this.addTorrent(torrent?.id ?? torrent, cache, true)
   }
 
+  hasPlaybackLock() {
+    return !!(
+      this.settings.torrentStreamedDownload &&
+      this.currentFile &&
+      !this.currentFile._destroyed &&
+      this.currentFile.progress < 1
+    )
+  }
+
+  syncBackgroundSelections() {
+    if (!this.settings.torrentStreamedDownload) return
+    const shouldPauseBackground = this.hasPlaybackLock()
+    this.torrents
+      .filter(torrent => (torrent.staging || torrent.seeding) && Array.isArray(torrent.files))
+      .forEach(torrent => {
+        torrent.files.forEach(file => {
+          if (file._destroyed) return
+          if (shouldPauseBackground) file.deselect()
+          else file.select()
+        })
+      })
+  }
+
+  clearCurrentPlaybackState() {
+    if (this.currentFile) {
+      this.currentFile.removeAllListeners('stream')
+      this.currentFile.removeAllListeners('iterator')
+    }
+    this.metadata?.destroy?.()
+    this.metadata = null
+    this.currentFile = null
+  }
+
   /**
    * Handles the current torrent metadata once it becomes available and notifies listeners with file and magnet info.
    * @param {import('webtorrent').Torrent} torrent - Active torrent instance.
@@ -325,11 +358,7 @@ export default class TorrentClient extends WebTorrent {
     torrent.once('verified', async () => {
       if (this.destroyed || torrent.destroyed) return
       if (torrent.current && !torrent.ready && torrent.progress < 1 && !cache?.infoHash) this.dispatch('info', 'Detected already downloaded files. Verifying file integrity. This might take a minute...')
-      if (torrent.staging && this.settings.torrentStreamedDownload && (!this.currentFile || this.currentFile.progress === 1)) {
-        for (const file of torrent.files) {
-          if (!file._destroyed) file.select()
-        }
-      }
+      if (torrent.staging) this.syncBackgroundSelections()
       if (!rescan && torrent.progress < 1 && (!this.settings.torrentStreamedDownload || torrent.staging) && (torrent.length > await this.storageQuota(torrent.path))) this.dispatchError('File Too Big! This File Exceeds The Selected Drive\'s Available Space. Change Download Location In Torrent Settings To A Drive With More Space And Restart The App!')
     })
     if (!torrent.ready) await new Promise(resolve => torrent.once('ready', resolve))
@@ -370,7 +399,10 @@ export default class TorrentClient extends WebTorrent {
     if (torrent.current) {
       this.dispatch('loaded', { id: torrent.magnetURI, ...(torrent.local ? { local: true } : {}), infoHash: torrent.infoHash })
       this.torrentReady(torrent)
-    } else if (torrent.staging && torrent.progress < 1) this.dispatch('staging', torrent.infoHash)
+    } else if (torrent.staging && torrent.progress < 1) {
+      this.dispatch('staging', torrent.infoHash)
+      this.syncBackgroundSelections()
+    }
 
     torrent.once('done', wrapTorrent)
     torrent.once('close', wrapTorrent)
@@ -418,22 +450,17 @@ export default class TorrentClient extends WebTorrent {
    */
   async promoteTorrent(torrent, loaded = false, swapping = false) {
     if (this.destroyed || torrent.destroyed) return
+    const isComplete = torrent.done || torrent.progress >= 0.999
     if (torrent.current) {
-      const seedingLimit = this.settings.seedingLimit > SUPPORTS.maxSeeding ? SUPPORTS.maxSeeding : (this.settings.seedingLimit || 1)
-      if (torrent.progress < 1) {
-        if (this.settings.torrentPersist || (seedingLimit > 1 && (this.torrents.filter(_torrent => (_torrent.seeding || _torrent.staging) && !_torrent.destroyed)?.length + (!swapping ? 1 : 0) < seedingLimit))) {
-          torrent.current = false
-          torrent.staging = true
-          this.bumpTorrent(torrent)
-          this.dispatch('staging', torrent.infoHash)
-          debug(`Loaded torrent did not finish downloading, moving to staging: ${torrent.infoHash}`, torrent.magnetURI)
-        } else this.completeTorrent(torrent)
+      if (!isComplete) {
+        torrent.current = false
+        torrent.staging = true
+        torrent.seeding = false
+        this.bumpTorrent(torrent)
+        this.dispatch('staging', torrent.infoHash)
+        debug(`Loaded torrent did not finish downloading, moving to staging: ${torrent.infoHash}`, torrent.magnetURI)
       } else if (loaded) await this.seedTorrent(torrent, swapping)
-      this.torrents.filter(_torrent => Array.isArray(_torrent.files)).forEach(_torrent => {
-        _torrent.files.forEach(file => {
-          if (!file._destroyed) file.select()
-        })
-      })
+      this.syncBackgroundSelections()
     } else await this.seedTorrent(torrent, swapping)
   }
 
@@ -535,14 +562,7 @@ export default class TorrentClient extends WebTorrent {
           if (this.currentFile) {
             this.currentFile.removeAllListeners('stream')
             this.currentFile.removeAllListeners('iterator')
-            if (this.settings.torrentStreamedDownload && !this.currentFile._destroyed && found.progress < 1) this.currentFile.deselect()
-          }
-          if (this.settings.torrentStreamedDownload && found.progress < 1) {
-            this.torrents.filter(_torrent => (_torrent.staging || _torrent.seeding) && Array.isArray(_torrent.files)).forEach(_torrent => {
-              _torrent.files.forEach(file => {
-                if (!file._destroyed) file.deselect()
-              })
-            })
+            if (this.settings.torrentStreamedDownload && !this.currentFile._destroyed && found.progress < 1 && this.currentFile.path !== found.path) this.currentFile.deselect()
           }
           this.metadata?.destroy?.()
           this.metadata = null
@@ -556,13 +576,9 @@ export default class TorrentClient extends WebTorrent {
             }
             this._checkProgress = () => {
               if (this.currentFile !== found || this.destroyed) torrent.off('download', this._checkProgress)
-              else if (this.currentFile.progress === 1) {
+              else if (!this.hasPlaybackLock()) {
                 debug('Current file has completed its streamed download... resuming queued torrents.', found.path)
-                this.torrents.filter(_torrent => Array.isArray(_torrent.files) && _torrent.infoHash !== torrent.infoHash).forEach(_torrent => {
-                  _torrent.files.forEach(file => {
-                    if (!file._destroyed) file.select()
-                  })
-                })
+                this.syncBackgroundSelections()
                 torrent.off('download', this._checkProgress)
               }
             }
@@ -578,6 +594,7 @@ export default class TorrentClient extends WebTorrent {
           torrent.current = true
           this.bumpTorrent(torrent)
           this.metadata = new Metadata(this, found)
+          this.syncBackgroundSelections()
           this.findSubtitleFiles(found)
           this.findFontFiles(found)
         }
@@ -595,6 +612,13 @@ export default class TorrentClient extends WebTorrent {
         const torrentID = data.data && data.data.id
         const cache = await this.torrentCache.get(hash || (await getInfoHash(torrentID)))
         this.addTorrent(torrentID, cache)
+        break
+      } case 'detach': {
+        const current = this.torrents.find(torrent => torrent.current)
+        this.clearCurrentPlaybackState()
+        this.dispatch('loaded', {})
+        if (current && !current.destroyed) await this.promoteTorrent(current, true)
+        else this.syncBackgroundSelections()
         break
       } case 'complete': {
         const cache = await this.torrentCache.get(data.data)
@@ -675,7 +699,7 @@ export default class TorrentClient extends WebTorrent {
         break
       } case 'unload': {
         if (!data.data && this.torrents.find(torrent => torrent.current)) {
-          this.currentFile = null
+          this.clearCurrentPlaybackState()
           const current = this.torrents.find(torrent => torrent.current)
           const cache = await this.torrentCache.get(current.infoHash)
           const seedingLimit = this.settings.seedingLimit > SUPPORTS.maxSeeding ? SUPPORTS.maxSeeding : (this.settings.seedingLimit || 1)

@@ -11,6 +11,32 @@ This document tracks technical hurdles, their root causes, and implemented solut
 
 ## ✅ Resolved Issues
 
+### Last Watched Reused the Active Now Playing Toggle
+> **Status**: **RESOLVED**
+> **Resolution**: Split retained `Last Watched` clicks from active `Now Playing` clicks so history state always opens the details modal first.
+> **Implementation**: `common/modules/nowPlayingNavigation.js:8-44`, `common/components/navigation/Sidebar.svelte:171-193`, `common/components/navigation/Navbar.svelte:18-27`
+
+**Issue Description:**
+After the Now Playing toggle behavior was corrected, the shared nav button still reused that same handler while the playback store was in retained-history mode (`display: true`). Clicking **Last Watched** could therefore behave like active playback navigation instead of opening the media description modal.
+
+**Symptoms:**
+- Clicking **Last Watched** could route into the full player flow instead of the description/details modal.
+- The nav entry still carried player-page active state even when it represented retained history rather than an active playback session.
+
+**Technical Root Cause:**
+- `common/modules/nowPlayingNavigation.js:8-36` handled all nav clicks as active playback, without checking whether the media store was in retained-display mode.
+- `common/components/navigation/Sidebar.svelte:173-187` and `common/components/navigation/Navbar.svelte:20-27` derived maximized-player state directly from the current page, even when the entry was really the retained **Last Watched** shortcut.
+- `common/modals/details/DetailsModal.svelte:306-315` also treated retained `display: true` history state as if it were already-active playback, so replaying that same title could short-circuit straight back to the player without re-entering the normal Now Playing transition.
+
+**Implemented Solution:**
+1. `openNowPlaying(...)` now short-circuits to `openNowPlayingDetails(...)` whenever the retained playback state has `display: true`.
+2. The sidebar and navbar now derive a dedicated `lastWatched` flag, suppress player-page active routing in that mode, and keep the History icon/text tied to the details-modal behavior.
+3. `DetailsModal.svelte` now ignores retained `Last Watched` state when checking whether a title is already playing, so replaying the same title re-enters the normal play flow and restores the regular Now Playing icon/behavior.
+
+**Lessons Learned:**
+- The shared playback nav item represents two distinct states: active playback and retained history. Routing logic needs to branch on that state explicitly instead of assuming the button always targets the player.
+- UI active-state helpers should key off semantic state, not just the current route, when a single control serves multiple modes.
+
 ### 1. HEVC Playback & Transcoding Stalls
 > **Status**: **RESOLVED**
 > **Resolution**: Implemented Smart Fallback with HandBrake repair + Persistent Storage.
@@ -130,10 +156,14 @@ Stopping playback or closing the application inadvertently triggered the "Smart 
 **Technical Root Cause:**
 The `error` event handler in `transcoder.js` was designed to catch *decoder crashes* which often manifest as the process killing itself (or being killed by the OS) with `SIGKILL`. The handler did not distinguish between an **unintentional crash** (which needs repair) and an **intentional stop** (triggered by `stop()` or the `/stop` endpoint) which also uses `SIGKILL` for immediate termination.
 
+**Regression Root Cause (2026-06-09):**
+The intentional-stop fix in [`electron/src/main/transcoder.js`](../electron/src/main/transcoder.js) was incomplete: `removeActiveTranscode()` cleared `intentionalStops` before the single-audio `error` handler and multi-audio `close` handler could inspect it. That ordering caused normal handoffs and shutdown kills to lose the stop marker and fall back into the HandBrake repair path even on healthy files.
+
 **Implemented Solution:**
 1.  **State Tracking**: Introduced `this.intentionalStops = new Set()` in the `Transcoder` class.
 2.  **Flagging**: When `stop()` or `DELETE /stop` is called, the specific file hash is added to `intentionalStops` *before* sending the kill signal.
-3.  **Conditional Handling**: The `error` handler now checks `if (this.intentionalStops.has(hash))` before triggering the repair logic. If found, the error is ignored, and the hash is removed from the set.
+3.  **Conditional Handling**: The termination handlers now consume `intentionalStops` before evaluating repair eligibility, and `removeActiveTranscode()` no longer clears that state preemptively.
+4.  **Repair Gating**: HandBrake repair now requires explicit decoder/corruption evidence (`Error submitting packet to decoder` or `Invalid data`) instead of treating every `SIGKILL` or non-zero exit as file corruption.
 
 ### 6. Genre Filter Mismatch (TMDB)
 > **Status**: **RESOLVED**
@@ -176,11 +206,6 @@ If a video fails to play (e.g., transcoding error or network issue), the player 
 -   Wrapped `setCurrent` in `try...catch...finally`.
 -   Explicitly destroying `hls` and removing `video.src` at start.
 -   Preventing ghost state by nullifying variables on error.
-
-
-
-
-
 
 
 

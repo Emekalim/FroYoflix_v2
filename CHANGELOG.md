@@ -3,6 +3,19 @@
 All notable changes to FroYo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [1.0.4] - 2026-06-09
+
+### Improved
+
+- Managed downloads now default to `Downloads/Froyo Library` on desktop, keep torrent data by default, and include clearer torrent manager states, labels, and empty-state messaging.
+- Changes made to improve playback and navigation user experience across local library playback, torrent playback, and the shared Now Playing / Last Watched entry.
+
+### Fixed
+
+- Resolved a playback glitch that could leave the buffering overlay stuck during direct MP4 playback.
+- Resolved playback glitches that could send Last Watched / Now Playing to the wrong screen or leave the nav entry stuck in Last Watched mode after replaying the same title.
+- Fixed torrent playback handoff issues so stopping playback no longer incorrectly drops active incomplete downloads from managed torrent state.
+
 ## [1.0.3] - 2026-06-08
 
 ### Improved

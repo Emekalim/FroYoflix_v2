@@ -23,7 +23,8 @@ contextBridge.exposeInMainWorld('version', {
 
 // Expose environment variables needed for renderer process
 contextBridge.exposeInMainWorld('env', {
-  TMDB_API_KEY: process.env.TMDB_API_KEY || ''
+  TMDB_API_KEY: process.env.TMDB_API_KEY || '',
+  DEFAULT_TORRENT_PATH: process.env.FROYO_DEFAULT_TORRENT_PATH || ''
 })
 
 contextBridge.exposeInMainWorld('electron', {

@@ -104,7 +104,7 @@
     donate: {
       name: 'Donate',
       icon: Heart,
-      action: () => IPC.emit('open', 'https://github.com/sponsors/Emekalim/'),
+      action: () => IPC.emit('open', 'https://buymeacoffee.com/afrankperspective'),
       sidebar: true
     }
   }

@@ -13,6 +13,7 @@
   import { toast } from "svelte-sonner";
   import Helper from "@/modules/helper.js";
   import { page, modal, playPage } from "@/modules/navigation.js";
+  import { openNowPlaying, openNowPlayingDetails } from "@/modules/nowPlayingNavigation.js";
   import { IPC, ELECTRON, VERSION } from "@/modules/bridge.js";
   import {
     goBack,
@@ -24,7 +25,6 @@
   import {
     MoveLeft,
     MoveRight,
-    CalendarSearch,
     Download,
     CloudDownload,
     Clapperboard,
@@ -36,7 +36,6 @@
     TvMinimalPlay,
     LogIn,
     Settings,
-    Users,
     Bell,
     BellDot,
   } from "lucide-svelte";
@@ -169,60 +168,23 @@
         color={active ? "currentColor" : "var(--gray-color-very-dim)"}
       />
     </SidebarLink>
-    <SidebarLink
-      click={() => page.navigateTo(page.SCHEDULE)}
-      _page={page.SCHEDULE}
-      icon="schedule"
-      text="Schedule"
-      let:active
-    >
-      <CalendarSearch
-        size={btnSize}
-        class="flex-shrink-0 p-5 m-5 rounded"
-        strokeWidth="2.5"
-        color={active ? "currentColor" : "var(--gray-color-very-dim)"}
-      />
-    </SidebarLink>
     {#if $media?.media || ($playPage && Object.keys($media).length > 0)}
       {@const currentMedia = $modal[modal.ANIME_DETAILS]?.data}
-      {@const wasModal = $modal && modal.length}
+      {@const lastWatched = !!$media?.display}
+      {@const playerMaximized = !lastWatched && $page === page.PLAYER && !$modal[modal.ANIME_DETAILS]}
       <SidebarLink
-        click={() => {
-          if ($playPage && $page === page.PLAYER && !wasModal) {
-            playPage.set(false);
-          }
-          if ($playPage) {
-            page.navigateTo(page.PLAYER);
-          } else if (
-            currentMedia?.id === $media?.media.id &&
-            modal.length === 1
-          ) {
-            modal.close(modal.ANIME_DETAILS);
-          } else {
-            modal.open(modal.ANIME_DETAILS, $media?.media);
-          }
-        }}
+        click={() => openNowPlaying($media)}
         rbClick={() => {
-          if ($media?.media) {
-            if (currentMedia?.id === $media.media.id && modal.length === 1) {
-              modal.close(modal.ANIME_DETAILS);
-            } else {
-              modal.open(modal.ANIME_DETAILS, $media.media);
-            }
-          }
+          openNowPlayingDetails($media);
         }}
-        _page={$playPage ? page.PLAYER : null}
+        _page={lastWatched ? null : playerMaximized ? page.PLAYER : null}
         icon="queue_music"
-        text={$media?.display ? "Last Watched" : "Now Playing"}
+        text={lastWatched ? "Last Watched" : "Now Playing"}
         _modal={modal.ANIME_DETAILS}
         let:active
       >
         <svelte:component
-          this={$playPage
-            ? TvMinimalPlay
-            : $media?.display
-              ? History
-              : ListVideo}
+          this={lastWatched ? History : playerMaximized ? ListVideo : TvMinimalPlay}
           size={btnSize}
           class="flex-shrink-0 p-5 m-5 rounded"
           strokeWidth="2.5"
@@ -232,20 +194,6 @@
         />
       </SidebarLink>
     {/if}
-    <SidebarLink
-      click={() => page.navigateTo(page.WATCH_TOGETHER)}
-      _page={page.WATCH_TOGETHER}
-      icon="groups"
-      text="Watch Together"
-      let:active
-    >
-      <Users
-        size={btnSize}
-        class="flex-shrink-0 p-5 m-5 rounded"
-        strokeWidth="2.5"
-        color={active ? "currentColor" : "var(--gray-color-very-dim)"}
-      />
-    </SidebarLink>
     <SidebarLink
       click={() => page.navigateTo(page.TORRENT_MANAGER)}
       _page={page.TORRENT_MANAGER}
@@ -264,7 +212,7 @@
     {#if $settings.donate && !SUPPORTS.isAndroid}
       <SidebarLink
         click={() => {
-          IPC.emit("open", "https://github.com/sponsors/Emekalim/");
+          IPC.emit("open", "https://buymeacoffee.com/afrankperspective");
         }}
         icon="favorite"
         text="Support This App"

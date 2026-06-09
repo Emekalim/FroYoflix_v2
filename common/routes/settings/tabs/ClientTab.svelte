@@ -41,18 +41,18 @@
 {/if}
 
 <h4 class='mb-10 font-weight-bold'>Client Settings</h4>
-<SettingCard title='Download Location' description={'Path to the folder used to store torrents. By default this is the TMP folder, which might lose data when your OS tries to reclaim storage.' + (SUPPORTS.isAndroid ? '\n\nIn Android, /sdcard/ is internal storage not external SD Cards and /storage/AB12-34CD/ is external storage not internal.' : '')}>
+<SettingCard title='Download Location' description={'Path to the folder used to store torrents. By default this is Downloads/Froyo Library on desktop and the TMP folder on Android.' + (SUPPORTS.isAndroid ? '\n\nIn Android, /sdcard/ is internal storage not external SD Cards and /storage/AB12-34CD/ is external storage not internal.' : '')}>
   <div class='input-group mw-100 w-400 flex-nowrap'>
     <div class='input-group-prepend'>
       <button type='button' use:click={() => IPC.emit('dialog')} class='btn btn-primary input-group-append d-flex align-items-center justify-content-center' title='Select a folder to store the torrents'><span>Select Folder</span></button>
     </div>
     {#if !SUPPORTS.isAndroid}
-      <input type='url' class='form-control bg-dark mw-100 text-truncate' readonly bind:value={settings.torrentPathNew} placeholder='/tmp' />
+      <input type='url' class='form-control bg-dark mw-100 text-truncate' readonly bind:value={settings.torrentPathNew} placeholder={defaults.torrentPathNew || '/tmp'} />
     {:else}
       <input type='text' class='form-control bg-dark mw-100 text-truncate' bind:value={settings.torrentPathNew} disabled={true} placeholder='/tmp' />
     {/if}
     <div class='input-group-prepend'>
-      <button type='button' use:click={() => { settings.torrentPathNew = undefined; if (SUPPORTS.isAndroid) toast.dismiss() }} disabled={!settings.torrentPathNew} class='btn btn-danger btn-square input-group-append px-5 d-flex align-items-center' title='Reset Location'><Eraser size='1.8rem' /></button>
+      <button type='button' use:click={() => { settings.torrentPathNew = defaults.torrentPathNew; if (SUPPORTS.isAndroid) toast.dismiss() }} disabled={!settings.torrentPathNew} class='btn btn-danger btn-square input-group-append px-5 d-flex align-items-center' title='Reset Location'><Eraser size='1.8rem' /></button>
     </div>
   </div>
 </SettingCard>

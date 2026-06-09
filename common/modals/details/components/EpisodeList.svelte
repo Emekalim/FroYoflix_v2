@@ -52,6 +52,7 @@
   import TorrentButton from '@/components/TorrentButton.svelte'
   import AudioLabel from '@/components/AudioLabel.svelte'
   import SmartImage from '@/components/visual/SmartImage.svelte'
+  import { status } from '@/modules/networking.js'
 
   export let media
 
@@ -76,6 +77,7 @@
   export let localAvailability = null
 
   let mobileWaiting = null
+  let pendingLocalEpisode = null
 
   function isLocallyAvailable(seasonNumber, episodeNumber) {
     if (!localAvailability) return true
@@ -293,6 +295,20 @@
     return mobileWaiting
   }
 
+  function handleEpisodeClick(media, episode, unavailableLocal, canSearchMissingLocal) {
+    if (!unavailableLocal) {
+      play(media, episode)
+      return
+    }
+    if (!canSearchMissingLocal) return
+    pendingLocalEpisode = pendingLocalEpisode === episode ? null : episode
+  }
+
+  function confirmMissingLocalSearch(media, episode) {
+    pendingLocalEpisode = null
+    play(media, episode, true, true)
+  }
+
   onMount(() => {
     setInterval(() => {
       if (!mobileList && episodeList?.length > maxEpisodes) renderVisible()
@@ -325,7 +341,9 @@
         {:then [title, filler, dubAiring, nextDubAiring]}
           {#if media?.status === 'FINISHED' || (episodeOrder ? (index === 0 || ((currentEpisodes[index - 1]?.airdate && (new Date(currentEpisodes[index - 1].airdate).getTime() <= new Date().getTime())) || (media?.status !== 'NOT_YET_RELEASED' && airdate && currentEpisodes[index - 1]?.airdate && (currentEpisodes[index - 1]?.airdate === airdate)) || (nextDubAiring?.airdate && new Date(nextDubAiring.airdate).getTime() === new Date(dubAiring.airdate).getTime()))) : (index === currentEpisodes.length - 1 || (currentEpisodes[index + 1]?.airdate && (new Date(currentEpisodes[index + 1]?.airdate).getTime() <= new Date().getTime())) || (currentEpisodes[index + 1]?.airdate && currentEpisodes[index + 1]?.airdate === airdate) || (nextDubAiring?.airdate && new Date(nextDubAiring.airdate).getTime() === new Date(dubAiring.airdate).getTime())))}
             {@const unreleased = media?.status !== 'FINISHED' && ((airdate && new Date(airdate).getTime() > new Date()) || (!airdate && media?.status === 'NOT_YET_RELEASED'))}
-            {@const unavailableLocal = !!localAvailability && !isLocallyAvailable(seasonNumber || seasonFilter || 1, episodeNumber || episode)}
+            {@const requestedEpisode = episodeNumber || episode}
+            {@const unavailableLocal = !!localAvailability && !isLocallyAvailable(seasonNumber || seasonFilter || 1, requestedEpisode)}
+            {@const canSearchMissingLocal = unavailableLocal && !$status.match(/offline/i)}
             {@const completed = !watched && userProgress >= (episode + (zeroEpisode ? 1 : 0))}
             {@const target = userProgress + 1 === (episode + (zeroEpisode ? 1 : 0))}
             {@const hasFiller = filler?.filler || filler?.recap}
@@ -334,12 +352,22 @@
             {@const largeCard = image}
             {@const resolvedHash = !localAvailability && ($completedTorrents || $seedingTorrents || $stagingTorrents || $loadedTorrent) && getHash(media?.id, { episode, client: true, batchGuess: true }, false, true)}
             <div class='w-full content-visibility-auto scale my-20' class:load-in={!loadScroll} class:opacity-half={completed} class:scale-target={target} class:px-20={!target} class:px-10={target} class:h-150={!SUPPORTS.isAndroid && largeCard} class:h-165={SUPPORTS.isAndroid && largeCard}>
-              <div role='button' tabindex='0' class='episode-card rounded-2 w-full h-full overflow-hidden d-flex flex-xsm-column flex-row position-relative {unreleased || unavailableLocal ? `unreleased not-allowed` : `pointer`}' class:not-reactive={!$reactive} class:smallCard={!largeCard} class:android={SUPPORTS.isAndroid}  class:border={target || hasFiller} class:bg-black={completed} class:border-secondary={hasFiller} class:bg-dark-light={!completed} class:missing-local={unavailableLocal} use:click={() => { if (!(unreleased || unavailableLocal)) play(media, episode) }} on:contextmenu|preventDefault={() => { if (!(unreleased || unavailableLocal)) play(media, episode, true) }}>
+              <div role='button' tabindex='0' class='episode-card rounded-2 w-full h-full overflow-hidden d-flex flex-xsm-column flex-row position-relative {unreleased || (unavailableLocal && !canSearchMissingLocal) ? `unreleased not-allowed` : `pointer`}' class:not-reactive={!$reactive} class:smallCard={!largeCard} class:android={SUPPORTS.isAndroid}  class:border={target || hasFiller} class:bg-black={completed} class:border-secondary={hasFiller} class:bg-dark-light={!completed} class:missing-local={unavailableLocal} use:click={() => { if (!unreleased) handleEpisodeClick(media, requestedEpisode, unavailableLocal, canSearchMissingLocal) }} on:contextmenu|preventDefault={() => { if (!(unreleased || unavailableLocal)) play(media, requestedEpisode, true) }}>
                 <div class="unreleased-overlay position-absolute top-0 left-0 right-0 h-full pointer-events-none rounded-2" class:d-none={!(unreleased || unavailableLocal)}/>
                 {#if unavailableLocal}
                   <div class='missing-local-label position-absolute top-0 left-0 right-0 z-1 d-flex justify-content-center pointer-events-none'>
                     <span class='px-15 py-5 mt-10 rounded-pill text-white font-weight-semi-bold'>Local version not available</span>
                   </div>
+                  {#if canSearchMissingLocal && pendingLocalEpisode === requestedEpisode}
+                    <div class='missing-local-prompt position-absolute z-2 rounded-2 d-flex flex-column align-items-center justify-content-center text-center px-20'>
+                      <div class='font-weight-bold font-size-16 mb-5'>Episode not in your library</div>
+                      <div class='text-muted font-size-12 mb-15'>Search torrents and download it?</div>
+                      <div class='d-flex gap-10'>
+                        <button type='button' class='btn btn-primary btn-sm' on:click|stopPropagation={() => confirmMissingLocalSearch(media, requestedEpisode)}>Search</button>
+                        <button type='button' class='btn btn-secondary btn-sm' on:click|stopPropagation={() => pendingLocalEpisode = null}>Cancel</button>
+                      </div>
+                    </div>
+                  {/if}
                 {/if}
                 {#if image}
                   <div class='d-flex'>
@@ -477,6 +505,12 @@
   .missing-local-label span {
     background: rgba(15, 23, 42, 0.88);
     border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .missing-local-prompt {
+    inset: 1.5rem;
+    background: rgba(8, 13, 23, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: 0 1.2rem 4rem rgba(0, 0, 0, 0.35);
   }
   .opacity-half {
     opacity: 50%;

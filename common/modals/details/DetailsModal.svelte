@@ -43,7 +43,8 @@
   import SmallCard from "@/components/cards/SmallCard.svelte";
   import SmallCardSk from "@/components/skeletons/SmallCardSk.svelte";
   import Helper from "@/modules/helper.js";
-  import { modal } from "@/modules/navigation.js";
+  import { modal, page } from "@/modules/navigation.js";
+  import { nowPlaying } from "@/components/MediaHandler.svelte";
   import DOMPurify from "dompurify";
   import { marked } from "marked";
   import {
@@ -62,9 +63,10 @@
   $: modalView = $modal[modal.ANIME_DETAILS]?.data;
   $: libraryShow = modalView?.__libraryShow || null;
   $: libraryItemId = modalView?.__libraryItemId || null;
+  $: modalSeasonFilter = modalView?.__seasonFilter || null;
   $: view = (() => {
     if (!modalView || typeof modalView !== "object") return modalView;
-    const { __libraryShow, __libraryItemId, ...data } = modalView;
+    const { __libraryShow, __libraryItemId, __seasonFilter, ...data } = modalView;
     return data;
   })();
   function close() {
@@ -76,6 +78,7 @@
   let scrollTags = null;
   let scrollGenres = null;
   let staticMedia;
+  let appliedSeasonHintKey = null;
   function resolveLibraryItem(itemId) {
     if (!itemId) return null;
     const item = libraryRepository.getItem(itemId);
@@ -118,8 +121,15 @@
   $: {
     if (media && (!staticMedia || staticMedia?.id !== media?.id)) {
       staticMedia = media;
-      seasonFilter = 1; // Reset season filter when media changes
+      seasonFilter = modalSeasonFilter || 1; // Reset season filter when media changes
     } else if (!media && staticMedia) staticMedia = null;
+  }
+  $: {
+    const seasonHintKey = modalSeasonFilter && `${modalView?.id}:${modalSeasonFilter}`;
+    if (seasonHintKey && appliedSeasonHintKey !== seasonHintKey) {
+      seasonFilter = modalSeasonFilter;
+      appliedSeasonHintKey = seasonHintKey;
+    }
   }
   mediaCache.subscribe((value) => {
     if (value && JSON.stringify(value[media?.id]) !== JSON.stringify(media))
@@ -293,11 +303,24 @@
   function checkClose({ keyCode }) {
     if (keyCode === 27) close();
   }
-  async function play(media, episode, force = false) {
+  function isCurrentPlayback(media, episode = null) {
+    if ($nowPlaying?.display) return false;
+    if (!media || $nowPlaying?.media?.id !== media.id) return false;
+    if (!isValidNumber(episode)) return true;
+    return Number($nowPlaying?.episode || 1) === Number(episode);
+  }
+  async function play(media, episode, force = false, allowLocalSearch = false) {
     if (!media) return;
+    if (isCurrentPlayback(media, episode)) {
+      page.navigateTo(page.PLAYER);
+      return;
+    }
     if (libraryShow) {
-      if (isValidNumber(episode))
-        return playLibraryShowEpisode(libraryShow, seasonFilter, episode);
+      if (isValidNumber(episode)) {
+        const localEpisode = playLibraryShowEpisode(libraryShow, seasonFilter, episode);
+        if (localEpisode || !allowLocalSearch) return localEpisode;
+        return openTorrentModal(media, episode, force, seasonFilter);
+      }
       return playLibraryShowItem(libraryShow, seasonFilter);
     }
     if (selectedLibraryItem?.preferredFile?.absolutePath) {

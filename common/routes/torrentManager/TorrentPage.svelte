@@ -21,7 +21,8 @@
   let filteredSeeding = []
   let filteredCompleted = []
   let disableRescan = false
-  let foundResults = true
+  let hasAnyTorrents = false
+  let hasVisibleTorrents = false
 
   function filterResults(results, searchText) {
     const dedupe = results.filter((torrent, index, arr) => arr.findIndex(_torrent => _torrent.infoHash === torrent.infoHash) === index)
@@ -40,8 +41,13 @@
   // Separate reactive block: disableRescan depends on store state
   $: disableRescan = ($seedingTorrents?.length + $stagingTorrents?.length + 1) >= settings.value.seedingLimit && !settings.value.torrentPersist
   
-  // Derived reactive block: foundResults depends on computed filter variables
-  $: foundResults = !(searchText?.length && !filteredLoaded && !filteredStaging.length && !filteredSeeding.length && !filteredCompleted.length)
+  $: hasAnyTorrents = !!($loadedTorrent?.infoHash || $stagingTorrents?.length || $seedingTorrents?.length || $completedTorrents?.length)
+  $: hasVisibleTorrents = !!(
+    ((!searchText?.length || filteredLoaded) && $loadedTorrent?.infoHash) ||
+    filteredStaging.length ||
+    filteredSeeding.length ||
+    filteredCompleted.length
+  )
 </script>
 
 <div class='bg-dark h-full w-full root status-transition {$$restProps.class}' class:pt-safe-area={$$restProps.class && !$status.match(/offline/i)} style={miniplayerPadding}>
@@ -68,35 +74,69 @@
     </div>
   </div>
   <div class='d-flex flex-column w-full text-wrap text-break-word font-scale-16 mt-20'>
-    <div class='d-flex flex-row mb-10 font-scale-18'>
-      <div class='font-weight-bold p-5 ml-20 mw-150 flex-1 w-auto'>Name</div>
-      <div class='font-weight-bold p-5 w-150 d-none d-md-block'><span class='d-none d-lg-block'>Size</span><Package class='d-lg-none' size='2rem'/></div>
-      <div class='font-weight-bold p-5 w-150'><span class='d-none d-lg-block'>Progress</span><Percent class='d-lg-none' size='2rem'/></div>
-      <div class='font-weight-bold p-5 w-150'><span class='d-none d-lg-block'>Status</span><Activity class='d-lg-none' size='2rem'/></div>
-      <div class='font-weight-bold p-5 w-150 d-none d-md-block'><span class='d-none d-lg-block'>Ratio</span><Scale class='d-lg-none' size='2rem'/></div>
-      <div class='font-weight-bold p-5 w-150 d-none d-md-block'><span class='d-none d-lg-block'>Down Speed</span><CloudDownload class='d-lg-none' size='2rem'/></div>
-      <div class='font-weight-bold p-5 w-150 d-block d-md-none'><span class='d-none d-lg-block'>Speed</span><Gauge class='d-lg-none' size='2rem'/></div>
-      <div class='font-weight-bold p-5 w-150 d-none d-md-block'><span class='d-none d-lg-block'>Up Speed</span><CloudUpload class='d-lg-none' size='2rem'/></div>
-      <div class='font-weight-bold p-5 w-150'><span class='d-none d-lg-block'>Seeders</span><Sprout class='d-lg-none' size='2rem'/></div>
-      <div class='font-weight-bold p-5 w-150 d-none d-md-block'><span class='d-none d-lg-block'>Leechers</span><Magnet class='d-lg-none' size='2rem'/></div>
-      <div class='font-weight-bold p-5 w-115 d-none d-md-block'><span class='d-none d-lg-block'>ETA</span><Timer class='d-lg-none' size='2rem'/></div>
-      <div class='font-weight-bold p-5 w-40 mr-5 mr-md-20 flex-shrink-0'/>
-    </div>
-    {#if foundResults}
+    {#if hasVisibleTorrents || searchText?.length}
+      <div class='d-flex flex-row mb-10 font-scale-18'>
+        <div class='font-weight-bold p-5 ml-20 mw-150 flex-1 w-auto'>Name</div>
+        <div class='font-weight-bold p-5 w-150 d-none d-md-block'><span class='d-none d-lg-block'>Size</span><Package class='d-lg-none' size='2rem'/></div>
+        <div class='font-weight-bold p-5 w-150'><span class='d-none d-lg-block'>Progress</span><Percent class='d-lg-none' size='2rem'/></div>
+        <div class='font-weight-bold p-5 w-150'><span class='d-none d-lg-block'>Status</span><Activity class='d-lg-none' size='2rem'/></div>
+        <div class='font-weight-bold p-5 w-150 d-none d-md-block'><span class='d-none d-lg-block'>Ratio</span><Scale class='d-lg-none' size='2rem'/></div>
+        <div class='font-weight-bold p-5 w-150 d-none d-md-block'><span class='d-none d-lg-block'>Down Speed</span><CloudDownload class='d-lg-none' size='2rem'/></div>
+        <div class='font-weight-bold p-5 w-150 d-block d-md-none'><span class='d-none d-lg-block'>Speed</span><Gauge class='d-lg-none' size='2rem'/></div>
+        <div class='font-weight-bold p-5 w-150 d-none d-md-block'><span class='d-none d-lg-block'>Up Speed</span><CloudUpload class='d-lg-none' size='2rem'/></div>
+        <div class='font-weight-bold p-5 w-150'><span class='d-none d-lg-block'>Seeders</span><Sprout class='d-lg-none' size='2rem'/></div>
+        <div class='font-weight-bold p-5 w-150 d-none d-md-block'><span class='d-none d-lg-block'>Leechers</span><Magnet class='d-lg-none' size='2rem'/></div>
+        <div class='font-weight-bold p-5 w-115 d-none d-md-block'><span class='d-none d-lg-block'>ETA</span><Timer class='d-lg-none' size='2rem'/></div>
+        <div class='font-weight-bold p-5 w-40 mr-5 mr-md-20 flex-shrink-0'/>
+      </div>
+    {/if}
+    {#if hasVisibleTorrents}
       {#if !searchText?.length || filteredLoaded}
-        <TorrentCard bind:data={$loadedTorrent} current={true} {disableRescan} />
+        {#if $loadedTorrent?.infoHash}
+          <TorrentCard bind:data={$loadedTorrent} current={true} state='current' {disableRescan} />
+        {/if}
       {/if}
       {#each filteredStaging as torrent (torrent.infoHash)}
-        <TorrentCard data={torrent} {disableRescan}/>
+        <TorrentCard data={torrent} state='staging' {disableRescan}/>
       {/each}
       {#each filteredSeeding as torrent (torrent.infoHash)}
-        <TorrentCard data={torrent} {disableRescan}/>
+        <TorrentCard data={torrent} state='seeding' {disableRescan}/>
       {/each}
       {#each filteredCompleted as torrent (torrent.infoHash)}
-        <TorrentCard data={torrent} completed={true} {disableRescan}/>
+        <TorrentCard data={torrent} state='completed' completed={true} {disableRescan}/>
       {/each}
+    {:else if !hasAnyTorrents && !searchText?.length}
+      <div class='empty-state px-20 text-center'>
+        <div class='empty-title text-white font-weight-bold'>Ooops!</div>
+        <div class='empty-subtitle text-muted'>Nothing To See Here!</div>
+        <div class='empty-help text-muted'>Downloads will appear here once a torrent is playing, downloading, seeding, or completed.</div>
+      </div>
     {:else}
       <ErrorCard promise={{ errors: [ { message: 'found no results' }]}}/>
     {/if}
   </div>
 </div>
+
+<style>
+  .empty-state {
+    min-height: 45vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .empty-title {
+    font-size: clamp(3.2rem, 5vw, 5.2rem);
+    letter-spacing: -0.04em;
+    line-height: 1;
+  }
+  .empty-subtitle {
+    margin-top: 1.6rem;
+    font-size: clamp(1.8rem, 2.4vw, 2.6rem);
+  }
+  .empty-help {
+    margin-top: 0.8rem;
+    max-width: 58rem;
+    font-size: 1.5rem;
+  }
+</style>

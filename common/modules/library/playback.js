@@ -69,6 +69,30 @@ function hydrateLibraryItem(item) {
   }
 }
 
+function createUnmatchedMedia(item, file) {
+  const title = item?.canonicalTitle || file?.absolutePath?.split(/[\\/]/).pop() || file?.name || 'Local File'
+  return {
+    id: item?.itemId || file?.fileId || file?.absolutePath || title,
+    title: {
+      userPreferred: title,
+      romaji: title,
+      english: title,
+      native: title
+    },
+    format: 'MOVIE',
+    type: 'MOVIE',
+    source: 'Local',
+    mediaType: 'unknown',
+    genres: [],
+    tags: [],
+    relations: { edges: [] },
+    recommendations: { edges: [] },
+    stats: { scoreDistribution: [] },
+    airingSchedule: { nodes: [] },
+    nextAiringEpisode: null
+  }
+}
+
 function normalizeIdentityText(value) {
   return String(value || '').trim().toLowerCase()
 }
@@ -115,8 +139,8 @@ function buildAnimeLibraryShow(item) {
 }
 
 export function playLibraryItem(item) {
-  const media = item?.media || item?.mediaSnapshot
   const file = item?.preferredFile
+  const media = item?.media || item?.mediaSnapshot || (item?.statusSummary === 'unmatched' ? createUnmatchedMedia(item, file) : null)
   if ((!file?.absolutePath && !item?.infoHash) || item?.statusSummary === 'missing') return
 
   if (!file?.absolutePath || !media) {

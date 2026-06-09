@@ -24,6 +24,7 @@ export default class App {
   icon = nativeImage.createFromPath(join(__dirname, process.platform === 'win32' ? '/icon_filled.ico' : '/icon_filled.png'))
   trayIcon = process.platform === 'darwin' ? nativeImage.createFromPath(join(__dirname, '/trayMacOSTemplate.png')) : this.icon
   trayNotifyIcon = nativeImage.createFromPath(join(__dirname, process.platform === 'darwin' ? '/trayNotifyMacOSTemplate.png' : process.platform === 'win32' ? '/icon_filled_notify.ico' : '/icon_filled_notify.png'))
+  defaultTorrentPath = join(app.getPath('downloads'), 'Froyo Library')
 
   timeouts = new Set()
   stateTimeout = null
@@ -76,6 +77,7 @@ export default class App {
   castSender = null
 
   constructor() {
+    process.env.FROYO_DEFAULT_TORRENT_PATH = this.defaultTorrentPath
     this.mainWindow.setMenuBarVisibility(false)
     this.mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     if (development) this.mainWindow.once('ready-to-show', () => this.showAndFocus(true))
@@ -228,6 +230,11 @@ export default class App {
 
     ipcMain.on('portRequest', async (event, settings) => {
       const { port1, port2 } = new MessageChannelMain()
+      if (settings?.torrentPathNew === this.defaultTorrentPath) {
+        await fs.promises.mkdir(this.defaultTorrentPath, { recursive: true }).catch(error => {
+          console.error('[Main] Failed to ensure default torrent directory:', error)
+        })
+      }
       await this.torrentLoad
       ipcMain.once('webtorrent-heartbeat', () => {
         this.webtorrentWindow.webContents.postMessage('main-heartbeat', settings)

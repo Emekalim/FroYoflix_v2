@@ -28,7 +28,11 @@ window.onbeforeunload = function (event) {
 let storedSettings = cache.getEntry(caches.GENERAL, 'settings')
 if (isElectronRuntime()) {
   // Force the desktop rollout onto the built-in search engine even if older cached settings say otherwise.
-  storedSettings = { ...storedSettings, useBuiltInSearchEngine: true }
+  storedSettings = {
+    ...storedSettings,
+    torrentPathNew: storedSettings?.torrentPathNew || defaults.torrentPathNew,
+    useBuiltInSearchEngine: true
+  }
 }
 let scopedDefaults
 try {

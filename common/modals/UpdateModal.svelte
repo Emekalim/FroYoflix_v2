@@ -370,10 +370,10 @@
           </div>
           <div class:mt-20={!isLesser}>
             Consider <span
-              class="custom-link"
-              use:click={() =>
-                IPC.emit("open", "https://github.com/sponsors/Emekalim")}
-              >donating on GitHub</span
+	              class="custom-link"
+	              use:click={() =>
+	                IPC.emit("open", "https://buymeacoffee.com/afrankperspective")}
+	              >buying me a coffee</span
             > to help support future FroYo development.
           </div>
           <hr class="my-20" />

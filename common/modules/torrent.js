@@ -93,6 +93,12 @@ window.addEventListener('torrent-unload', () => {
   resetPlaybackSession()
   client.send('unload', null) // this will not override the cached loadedTorrent, we rely on users to enable disableStartupTorrent if they don't want to load the previous torrent when the app starts.
 })
+window.addEventListener('torrent-stop-playback', () => {
+  files.value = []
+  media.value = { ...media.value, display: true }
+  resetPlaybackSession()
+  client.send('detach', null)
+})
 window.addEventListener('add', (event) => add(event.detail.resolvedHash, event.detail.search, event.detail.resolvedHash))
 window.addEventListener('rescan', () => client.send('rescan'))
 clipboard.on('text', ({ detail }) => {
@@ -159,6 +165,13 @@ export async function unload(torrent, hash) {
     debug('Unloading torrent', JSON.stringify({ torrent, hash }))
     client.send('unload', { torrent, hash })
   }
+}
+export async function stopPlayback() {
+  debug('Stopping playback and retaining torrent state')
+  files.value = []
+  media.value = { ...media.value, display: true }
+  resetPlaybackSession()
+  client.send('detach', null)
 }
 export async function untrack(hash, deleteData = false) {
   if (hash) {
@@ -229,6 +242,7 @@ function setupTorrentClient() {
 
   client.on('loaded', ({ detail }) => {
     cache.setEntry(caches.GENERAL, 'loadedTorrent', detail)
+    loadedTorrent.update(() => detail || {})
     deduplicateTorrents(detail?.infoHash, 'stagingTorrents', 'seedingTorrents', 'completedTorrents')
     client.emit('untrack', detail?.infoHash)
   })
@@ -249,17 +263,46 @@ function setupTorrentClient() {
       cache.setEntry(caches.GENERAL, 'stagingTorrents', Array.from(new Set([...torrents, detail])))
     }
     deduplicateTorrents(detail, 'seedingTorrents', 'completedTorrents')
-    const found = structuredClone(loadedTorrent.value?.infoHash === detail || seedingTorrents.value.find(torrent => torrent.infoHash === detail) || completedTorrents.value.find(torrent => torrent.infoHash === detail))
+    const found = loadedTorrent.value?.infoHash === detail
+      ? structuredClone(loadedTorrent.value)
+      : structuredClone(
+          stagingTorrents.value.find(torrent => torrent.infoHash === detail) ||
+          seedingTorrents.value.find(torrent => torrent.infoHash === detail) ||
+          completedTorrents.value.find(torrent => torrent.infoHash === detail)
+        )
     if (loadedTorrent.value?.infoHash === detail) loadedTorrent.update(() => ({}))
+    stagingTorrents.update(torrents => torrents.filter(torrent => torrent.infoHash !== detail))
     seedingTorrents.update(torrents => torrents.filter(torrent => torrent.infoHash !== detail))
     completedTorrents.update(torrents => torrents.filter(torrent => torrent.infoHash !== detail))
-    if (found) (found.incomplete ? stagingTorrents : seedingTorrents).update(prev => [found, ...prev.filter(torrent => torrent.infoHash !== detail)])
+    if (found) stagingTorrents.update(prev => [{
+      ...found,
+      current: false,
+      staging: true,
+      seeding: false,
+      incomplete: found.incomplete ?? ((found.progress || 0) < 1)
+    }, ...prev.filter(torrent => torrent.infoHash !== detail)])
   })
   client.on('seeding', ({ detail }) => {
     debug(`Seeding torrent:`, JSON.stringify(detail))
     const torrents = cache.getEntry(caches.GENERAL, 'seedingTorrents') || []
     if (!torrents.includes(detail)) cache.setEntry(caches.GENERAL, 'seedingTorrents', Array.from(new Set([...torrents, detail])))
     deduplicateTorrents(detail, 'stagingTorrents', 'completedTorrents')
+    const found = loadedTorrent.value?.infoHash === detail
+      ? structuredClone(loadedTorrent.value)
+      : structuredClone(
+          stagingTorrents.value.find(torrent => torrent.infoHash === detail) ||
+          completedTorrents.value.find(torrent => torrent.infoHash === detail)
+        )
+    if (loadedTorrent.value?.infoHash === detail) loadedTorrent.update(() => ({}))
+    stagingTorrents.update(torrents => torrents.filter(torrent => torrent.infoHash !== detail))
+    completedTorrents.update(torrents => torrents.filter(torrent => torrent.infoHash !== detail))
+    if (found) seedingTorrents.update(prev => [{
+      ...found,
+      current: false,
+      staging: false,
+      seeding: true,
+      incomplete: false
+    }, ...prev.filter(torrent => torrent.infoHash !== detail)])
   })
   client.on('completed', ({ detail }) => {
     debug(`Completed torrent:`, JSON.stringify(detail))

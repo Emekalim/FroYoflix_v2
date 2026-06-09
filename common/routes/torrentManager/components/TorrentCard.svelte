@@ -15,6 +15,7 @@
     add,
     stage,
     unload,
+    stopPlayback,
     untrack,
     complete,
     reannounce,
@@ -27,10 +28,14 @@
   import { copyToClipboard } from "@/modules/clipboard.js";
   import { getId } from "@/modules/anime/animehash.js";
   import { modal } from "@/modules/navigation.js";
+  import { getTorrentState, getTorrentStateLabel } from "@/modules/torrentState.js";
+  import { libraryRepository } from "@/modules/library/LibraryRepository.js";
+  import { playLibraryItem } from "@/modules/library/playback.js";
   export let data;
   export let current = false;
   export let completed = false;
   export let disableRescan = false;
+  export let state = "staging";
 
   const infoHash = data.infoHash;
 
@@ -87,7 +92,30 @@
     else if (data.progress === 1) complete(infoHash);
   }
 
+  function playTorrent() {
+    if (completed) {
+      const libraryMatch = libraryRepository.findByTorrentInfoHash(infoHash);
+      if (libraryMatch?.file?.absolutePath) {
+        playLibraryItem({
+          ...libraryMatch.item,
+          preferredFile: libraryMatch.file,
+          subtitles: libraryMatch.subtitles,
+          watch: libraryMatch.watch,
+          media: libraryRepository.resolveMediaSnapshot(libraryMatch.item),
+        });
+        return;
+      }
+    }
+    add(infoHash, search, infoHash);
+  }
+
   let options;
+  $: torrentState = getTorrentState(data, {
+    current: current || state === "current",
+    completed,
+    streamedDownload: settings.value.torrentStreamedDownload,
+  });
+  $: statusLabel = getTorrentStateLabel(torrentState);
   function toggleDropdown() {
     options.classList.toggle("active");
     options.closest(".dropdown").classList.toggle("show");
@@ -131,7 +159,7 @@
   aria-label={!current ? "Play Torrent" : "Currently Playing"}
   title={!current ? "Play Torrent" : "Currently Playing"}
   use:click={() => {
-    if (!current) add(infoHash, search, infoHash);
+    if (!current) playTorrent();
   }}
   on:contextmenu|preventDefault={altClick}
 >
@@ -180,25 +208,7 @@
           : "0.0%"}
     </div>
     <div class="p-5 w-150">
-      {completed
-        ? data.incomplete
-          ? data.missing_pieces
-            ? "Missing Pieces"
-            : "Incomplete"
-          : "Completed"
-        : data.progress === 1
-          ? "Seeding"
-          : data.size && (data.downloadSpeed || data.uploadSpeed)
-            ? "Downloading"
-            : !(data.downloadSpeed || data.uploadSpeed) &&
-                data.eta > 1000 &&
-                data.eta < Infinity &&
-                data.progress < 1 &&
-                !settings.value.torrentStreamedDownload
-              ? "Scanning"
-              : data.name
-                ? "Stalled"
-                : "—"}
+      {statusLabel}
     </div>
     <div class="p-5 w-150 d-none d-md-block">
       {(!completed &&
@@ -256,7 +266,7 @@
         aria-label="Play Torrent"
         title="Play Torrent"
         use:click={() => {
-          add(infoHash, search, infoHash);
+          playTorrent();
           toggleDropdown();
         }}
       >
@@ -332,7 +342,7 @@
         aria-label="Stop Playing"
         title="Stop Playing"
         use:click={() => {
-          unload(infoHash, true);
+          stopPlayback();
           toggleDropdown();
         }}
       >
@@ -361,14 +371,14 @@
           !current &&
           data.progress < 1 &&
           settings.value.torrentPersist}
-        aria-label="Stop Download"
-        title="Stop Download"
+        aria-label="Pause Download"
+        title="Pause Download"
         use:click={() => {
           unload(infoHash, true);
           toggleDropdown();
         }}
       >
-        Stop Download
+        Pause Download
       </div>
       <div
         role="button"
@@ -393,14 +403,14 @@
           data.incomplete &&
           settings.value.seedingLimit > 1 &&
           !disableRescan}
-        aria-label="Continue Downloading"
-        title="Continue Downloading"
+        aria-label="Resume Download"
+        title="Resume Download"
         use:click={() => {
           stage(infoHash, null, infoHash);
           toggleDropdown();
         }}
       >
-        Continue Downloading
+        Resume Download
       </div>
     </div>
   </div>

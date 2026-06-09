@@ -19,6 +19,7 @@ This document tracks major feature implementations, architectural improvements, 
 -   **Plan:** Smart Fallback Implementation Plan
 -   **Status:** **Fully Implemented**.
 -   **Deviations:** Added active `stderr` monitoring in `transcoder.js` to detect "Error submitting packet to decoder" hangs and force-kill (`SIGKILL`) the process, triggering the `HandBrakeCLI` repair pipeline.
+-   **Follow-up Hardening (2026-06-09):** Repair gating now survives intentional stop handoffs until the termination handlers consume them, and non-decoder/non-corruption exits no longer trigger HandBrake on healthy files.
 
 ### 3. HLS Caching Architecture
 **Goal:** Enable seeking, persistence, and efficient streaming.
@@ -35,6 +36,7 @@ This document tracks major feature implementations, architectural improvements, 
 -   **Features:**
     -   **TMDB Genre Caching:** `sections.js` caches genre lists per session, reducing API calls by ~99%.
     -   **Format Dropdown:** Refactored search routing to support single or multi-format queries efficiently.
+    -   **(2026-06-09)** Torrent manager empty-state polish: `common/routes/torrentManager/TorrentPage.svelte` now shows `No downloads.` when no torrents exist instead of rendering a fake placeholder row with `0 B`, `0.0%`, and empty status values.
 
 ### 5. Rebranding to FroYo
 **Goal:** Transition from "Shiru" to "FroYo" for consistent branding.
@@ -52,11 +54,19 @@ This document tracks major feature implementations, architectural improvements, 
     -   Moved Electron update orchestration into `electron/src/main/updater/`, with policy, state transitions, and install handoff owned by the main process.
     -   Replaced renderer polling and ad hoc update events with a single updater state snapshot plus `updater:state-changed`.
     -   Added a dedicated `window.updater` preload API and a shared renderer updater store for `UpdateModal`, Settings, and sidebar badges.
-    -   Added dev-only updater test support through `electron/dev-app-update.yml` plus `FROYO_FORCE_DEV_UPDATES` / `FROYO_SIMULATE_DEV_UPDATE` overrides and the `electron/package.json` `start:update-test` script.
-    -   Switched macOS release packaging to a universal updater ZIP to avoid architecture-specific checksum mismatches during desktop updates.
-    -   Added release-note publishing automation so the `CHANGELOG.md` entry for each tag becomes the GitHub Release body consumed by FroYo's update dialog.
-    -   Moved macOS `ffmpeg` and `ffprobe` packaging off host-specific `node_modules` binaries and into a CI download + `lipo` assembly step so release builds bundle deterministic universal binaries.
-    -   Split macOS CI into an Intel x64 build job and an Apple Silicon arm64 build job, then merged those app bundles into the published universal release artifact.
+     -   Added dev-only updater test support through `electron/dev-app-update.yml` plus `FROYO_FORCE_DEV_UPDATES` / `FROYO_SIMULATE_DEV_UPDATE` overrides and the `electron/package.json` `start:update-test` script.
+     -   Switched macOS release packaging to a universal updater ZIP to avoid architecture-specific checksum mismatches during desktop updates.
+     -   Added release-note publishing automation so the `CHANGELOG.md` entry for each tag becomes the GitHub Release body consumed by FroYo's update dialog.
+     -   Moved macOS `ffmpeg` and `ffprobe` packaging off host-specific `node_modules` binaries and into a CI download + `lipo` assembly step so release builds bundle deterministic universal binaries.
+     -   Split macOS CI into an Intel x64 build job and an Apple Silicon arm64 build job, then merged those app bundles into the published universal release artifact.
+
+### 7. Playback Navigation State Cleanup
+**Goal:** Make the shared Now Playing / Last Watched nav entry follow the correct player-vs-details behavior for both active playback and retained history state.
+-   **Status:** **Implemented**.
+-   **Key Implementations:**
+    -   `common/modules/nowPlayingNavigation.js` now routes retained `display` playback state through the details modal instead of reusing the active Now Playing maximize/toggle flow.
+    -   `common/components/navigation/Sidebar.svelte` and `common/components/navigation/Navbar.svelte` now treat `Last Watched` as a details-modal shortcut, while active playback still uses the full-player/miniplayer toggle logic and icon states.
+    -   `common/modals/details/DetailsModal.svelte` now ignores retained `Last Watched` state when checking for current playback, so replaying the same media re-enters the normal play flow and restores active Now Playing behavior.
 
 ---
 
@@ -96,6 +106,10 @@ This document tracks major feature implementations, architectural improvements, 
     -   ✅ **(2026-04-10)** Unified details-modal play routing so secondary `play-media` actions no longer bypass local availability — buttons that previously forced the torrent modal now flow through the same local-first `play(...)` decision path as `Watch Now`, keeping library-backed playback behavior consistent across controls.
     -   ✅ **(2026-04-10)** Updated the Windows GitHub release workflow to stage `ffprobe.exe` from the same FFmpeg archive as `ffmpeg.exe`, so packaged Windows builds have the explicit probe binary needed by subtitle extraction.
     -   ✅ **(2026-06-09)** Fixed a player buffering-overlay regression for direct MP4 playback in `common/routes/player/PlayerPage.svelte` — the spinner now clears as soon as the media clock is advancing with playable data instead of waiting only for the initial `loadeddata` / `canplay` / `playing` events, which could leave the overlay stuck until the next seek.
+    -   ✅ **(2026-06-09)** Changed the default managed download root to `Downloads/Froyo Library` on Electron and enabled `torrentPersist` by default, with startup directory creation in `electron/src/main/app.js` plus renderer-side fallback/reset handling in `common/modules/settings.js`, `common/modules/util.js`, and `common/routes/settings/tabs/ClientTab.svelte`.
+	    -   ✅ **(2026-06-09)** Cleaned up torrent manager download-state UX in `common/routes/torrentManager/TorrentPage.svelte` and `common/routes/torrentManager/components/TorrentCard.svelte` so active playback reads `Playing`, staged background torrents read `Queued`, persisted partials read `Paused`, and the menu actions now say `Pause Download` / `Resume Download`.
+	    -   ✅ **(2026-06-09)** Unified torrent playback and queue transitions across `client/core/webtorrent.js`, `common/modules/torrent.js`, and the torrent UI components so `Stop Playing` and miniplayer close now stop playback without removing incomplete torrents from active downloads, lone queued torrents auto-start when playback is idle, and the torrent modal/button labels now use the same `Playing` / `Downloading` / `Queued` / `Seeding` / `Completed` / `Paused` vocabulary as the manager.
+	    -   ✅ **(2026-06-09)** Completed the follow-up UIX cleanup: unmatched library files now sort by latest scan/import time, completed torrents prefer local library playback, no-device Cast shows an explicit empty receiver state, inactive Schedule/Watch Together nav icons are hidden, support links point to Buy Me a Coffee, Now Playing navigation is shared across desktop/mobile, missing local episodes can prompt into torrent search while online, and the torrent manager empty state is centered and authoritative.
     -   ✅ **(2026-03-21)** Fixed season detection in `LibraryIngest.js` — added regex fallback (`SxxExx`) when the resolver doesn't return an explicit season number, preventing all TV episodes defaulting to season 1.
     -   ✅ **(2026-03-21)** Enhanced `LibrarySearch.svelte` with live poster hydration — unmatched/placeholder items auto-query the provider API (AniList or TMDB) using filename/folder heuristics so search results show real artwork instead of blank cards.
     -   ✅ **(2026-03-21)** Added `computeAllSections(limit)` to `LibraryRepository` — replaces 6 separate `listItems()` calls (6 × O(n) scans) with a single shared scan + version-keyed result cache (O(1) on re-navigation). Cache is invalidated atomically on every `setRaw` write.
@@ -142,6 +156,7 @@ This document tracks major feature implementations, architectural improvements, 
     -   ✅ **(2026-06-08)** Preserved the currently selected local audio track at cast start by threading the chosen track index through the Cast load payload and transcoder cache/init flow.
     -   ✅ **(2026-06-08)** Added v1 Cast text-subtitle carryover for local sidecar/extracted subtitles: the selected text subtitle is converted to WebVTT on demand and attached as an active Cast text track at load time.
     -   ✅ **(2026-06-08)** Added Cast session remote controls in `electron/src/main/cast/service.js` and `common/routes/player/PlayerPage.svelte` so play/pause, seek, mute, and volume changes are routed to the active Cast receiver while the local player pauses and the UI reflects remote playback state.
+    -   ✅ **(2026-06-09)** Fixed two Cast handoff regressions in `common/routes/player/PlayerPage.svelte` — seekbar clicks/drags now compute the Cast target time before any async pause request so Cast seeking no longer races against pointer release, and ending a Cast session now restores local playback from a renderer-side snapshot that preserves the remote paused/playing state, resume time, and last known duration until local metadata is available again.
     -   ⚠️ Active subtitle switching during an existing Cast session, full alternate-audio switching on the receiver, torrent-embedded subtitle carryover, and image-subtitle support (PGS/VobSub) remain future phases.
 
 ---

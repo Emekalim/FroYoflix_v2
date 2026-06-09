@@ -4,6 +4,7 @@
     import { stage, loadedTorrent, stagingTorrents, seedingTorrents, completedTorrents } from '@/modules/torrent.js'
     import { getHash } from '@/modules/anime/animehash.js'
     import { click } from '@/modules/click.js'
+    import { getTorrentState, getTorrentStateLabel } from '@/modules/torrentState.js'
 
     export function playActive(hash, search, uri, prompt = true) {
         const autoFile = settings.value.rssAutofile
@@ -50,8 +51,47 @@
     export let strokeWidth = '3'
     $: disabled = ($seedingTorrents?.length + $stagingTorrents?.length + 1) >= settings.value.seedingLimit && !settings.value.torrentPersist
     $: activeHash = $loadedTorrent && $stagingTorrents && $seedingTorrents && $completedTorrents && (Array.isArray(hash) ? getActiveHash(hash) : hash)
-    $: downloaded = ($completedTorrents.some(torrent => torrent.infoHash === activeHash) && !$completedTorrents.find(torrent => torrent.infoHash === activeHash).incomplete) || $seedingTorrents.some(torrent => torrent.infoHash === activeHash) || $stagingTorrents.some(torrent => torrent.infoHash === activeHash) || $loadedTorrent.infoHash === activeHash
+    $: currentTorrent = $loadedTorrent.infoHash === activeHash ? $loadedTorrent : null
+    $: stagingTorrent = $stagingTorrents.find(torrent => torrent.infoHash === activeHash) || null
+    $: seedingTorrent = $seedingTorrents.find(torrent => torrent.infoHash === activeHash) || null
+    $: completedTorrent = $completedTorrents.find(torrent => torrent.infoHash === activeHash) || null
+    $: activeTorrent = currentTorrent || seedingTorrent || stagingTorrent || completedTorrent || null
+    $: torrentState = activeTorrent
+        ? getTorrentState(activeTorrent, {
+            current: !!currentTorrent,
+            completed: !!completedTorrent,
+            streamedDownload: settings.value.torrentStreamedDownload
+        })
+        : null
+    $: canResume = !!(completedTorrent?.incomplete && !disabled && torrentID)
+    $: canQueue = !!(!activeTorrent && !disabled && torrentID)
+    $: buttonInteractive = canQueue || canResume
+    $: buttonTitle = completedTorrent?.incomplete
+        ? 'Resume Download'
+        : activeTorrent
+            ? getTorrentStateLabel(torrentState, { currentLabel: 'Now Playing' })
+            : (!disabled ? 'Queue for Download' : 'Enable Persist Files or Increase Seeding Limit')
+    $: buttonColor = completedTorrent?.incomplete
+        ? 'var(--error-color)'
+        : currentTorrent || completedTorrent
+            ? 'var(--quaternary-color)'
+            : seedingTorrent
+                ? 'var(--tertiary-color)'
+                : stagingTorrent
+                    ? 'var(--warning-color)'
+                    : ''
+    $: buttonIcon = completedTorrent?.incomplete
+        ? Download
+        : completedTorrent
+            ? FolderCheck
+            : seedingTorrent
+                ? CloudUpload
+                : stagingTorrent
+                    ? CloudDownload
+                    : currentTorrent
+                        ? TvMinimalPlay
+                        : Download
 </script>
-<button type='button' class='torrent-button d-flex align-items-center justify-content-center {$$restProps.class}' class:not-allowed={downloaded || disabled} class:not-reactive={downloaded || disabled} disabled={disabled && !downloaded} data-toggle='tooltip' data-placement='left' data-title={$completedTorrents.some(torrent => torrent.infoHash === activeHash) ? ($completedTorrents.find(torrent => torrent.infoHash === activeHash).incomplete ? 'Download Incomplete' : 'Download Completed') : $seedingTorrents.some(torrent => torrent.infoHash === activeHash) ? 'Seeding...' : $stagingTorrents.some(torrent => torrent.infoHash === activeHash) ? 'Downloading...' : $loadedTorrent.infoHash === activeHash ? 'Now Playing' : (!disabled ? 'Queue for Download' : 'Enable Persist Files or Increase Seeding Limit')} use:click={() => { if (!disabled && !downloaded && torrentID) stage(torrentID, search, activeHash) }}>
-    <svelte:component this={$completedTorrents.some(torrent => torrent.infoHash === activeHash) ? ($completedTorrents.find(torrent => torrent.infoHash === activeHash).incomplete ? FolderX : FolderCheck) : $seedingTorrents.some(torrent => torrent.infoHash === activeHash) ? CloudUpload : $stagingTorrents.some(torrent => torrent.infoHash === activeHash) ? CloudDownload : $loadedTorrent.infoHash === activeHash ? TvMinimalPlay : Download} {size} {strokeWidth} style={downloaded ? (`color: ${$completedTorrents.some(torrent => torrent.infoHash === activeHash) ? 'var(--quaternary-color)' : $seedingTorrents.some(torrent => torrent.infoHash === activeHash) ? 'var(--tertiary-color)' : $stagingTorrents.some(torrent => torrent.infoHash === activeHash) ? 'var(--warning-color)' : 'var(--quaternary-color)'}`) : (($completedTorrents.find(torrent => torrent.infoHash === activeHash)?.incomplete ? 'color: var(--error-color)' : ''))} />
+<button type='button' class='torrent-button d-flex align-items-center justify-content-center {$$restProps.class}' class:not-allowed={!buttonInteractive && (activeTorrent || disabled)} class:not-reactive={!buttonInteractive && (activeTorrent || disabled)} disabled={disabled && !buttonInteractive} data-toggle='tooltip' data-placement='left' data-title={buttonTitle} use:click={() => { if (buttonInteractive) stage(torrentID, search, activeHash) }}>
+    <svelte:component this={buttonIcon} {size} {strokeWidth} style={buttonColor ? `color: ${buttonColor}` : ''} />
 </button>

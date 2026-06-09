@@ -24,7 +24,7 @@ export default class Protocol {
     search: id => this.play(id),
     w2g: link => this.window.webContents.send('w2glink', link),
     schedule: () => this.window.webContents.send('schedule'),
-    donate: () => shell.openExternal('https://github.com/sponsors/Emekalim/'),
+    donate: () => shell.openExternal('https://buymeacoffee.com/afrankperspective'),
     update: () => ipcMain.emit('window-show'),
     changelog: () => shell.openExternal('https://github.com/Emekalim/FroYoflix_v2/releases/latest'),
     show: () => ipcMain.emit('window-show')

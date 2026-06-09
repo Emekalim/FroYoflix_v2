@@ -3,7 +3,8 @@
   import { nowPlaying as media } from '@/components/MediaHandler.svelte'
   import { hasUnreadNotifications } from '@/modals/NotificationsModal.svelte'
   import NavbarLink from '@/components/navigation/NavbarLink.svelte'
-  import { Home, Search, Users, Download, CalendarSearch, Settings, Bell, BellDot, ListVideo, History, TvMinimalPlay } from 'lucide-svelte'
+  import { openNowPlaying, openNowPlayingDetails } from '@/modules/nowPlayingNavigation.js'
+  import { Home, Search, Download, Settings, Bell, BellDot, ListVideo, History, TvMinimalPlay } from 'lucide-svelte'
 </script>
 
 <nav class='navbar z-80 navbar-fixed-bottom d-block d-md-none border-0 bg-dark bt-10'>
@@ -14,40 +15,18 @@
     <NavbarLink click={() => page.navigateTo(page.SEARCH)} _page={page.SEARCH} icon='search' text='Search' let:active>
       <Search size='3.6rem' class='flex-shrink-0 p-5 m-5 rounded' stroke-width='2.5' stroke='currentColor' color={active ? 'currentColor' : 'var(--gray-color-very-dim)'} />
     </NavbarLink>
-    <NavbarLink click={() => page.navigateTo(page.SCHEDULE)} _page={page.SCHEDULE} icon='schedule' text='Schedule' let:active>
-      <CalendarSearch size='3.6rem' class='flex-shrink-0 p-5 m-5 rounded' strokeWidth='2.5' color={active ? 'currentColor' : 'var(--gray-color-very-dim)'} />
-    </NavbarLink>
     {#if $media?.media || ($playPage && (Object.keys($media).length > 0))}
       {@const currentMedia = $modal[modal.ANIME_DETAILS]?.data}
-      {@const wasModal = $modal && modal.length}
+      {@const lastWatched = !!$media?.display}
+      {@const playerMaximized = !lastWatched && $page === page.PLAYER && !$modal[modal.ANIME_DETAILS]}
       <NavbarLink
-        click={() => {
-          if ($playPage && (page.value === page.PLAYER) && !wasModal) {
-            playPage.set(false)
-          }
-          if ($playPage) {
-            page.navigateTo(page.PLAYER)
-          } else if (currentMedia?.id === $media?.media.id && modal.length === 1) {
-            modal.close(modal.ANIME_DETAILS)
-          } else {
-            modal.open(modal.ANIME_DETAILS, $media?.media)
-          }
-        }}
+        click={() => openNowPlaying($media)}
         rbClick={() => {
-          if ($media?.media) {
-            if (currentMedia?.id === $media.media.id && modal.length === 1) {
-              modal.close(modal.ANIME_DETAILS)
-            } else {
-              modal.open(modal.ANIME_DETAILS, $media.media)
-            }
-          }
-        }} _page={$playPage ? page.PLAYER : null} icon='queue_music' text={$media?.display ? 'Last Watched' : 'Now Playing'} _modal={modal.ANIME_DETAILS} let:active>
-        <svelte:component this={$playPage ? TvMinimalPlay : $media?.display ? History : ListVideo} size='3.6rem' class='flex-shrink-0 p-5 m-5 rounded' strokeWidth='2.5' color={active && (currentMedia?.id === $media?.media?.id) ? 'currentColor' : 'var(--gray-color-very-dim)'} />
+          openNowPlayingDetails($media)
+        }} _page={lastWatched ? null : playerMaximized ? page.PLAYER : null} icon='queue_music' text={lastWatched ? 'Last Watched' : 'Now Playing'} _modal={modal.ANIME_DETAILS} let:active>
+        <svelte:component this={lastWatched ? History : playerMaximized ? ListVideo : TvMinimalPlay} size='3.6rem' class='flex-shrink-0 p-5 m-5 rounded' strokeWidth='2.5' color={active && (currentMedia?.id === $media?.media?.id) ? 'currentColor' : 'var(--gray-color-very-dim)'} />
       </NavbarLink>
     {/if}
-    <NavbarLink click={() => page.navigateTo(page.WATCH_TOGETHER)} _page={page.WATCH_TOGETHER} icon='groups' text='Watch Together' let:active>
-      <Users size='3.6rem' class='flex-shrink-0 p-5 m-5 rounded' strokeWidth='2.5' color={active ? 'currentColor' : 'var(--gray-color-very-dim)'} />
-    </NavbarLink>
     <NavbarLink click={() => page.navigateTo(page.TORRENT_MANAGER)} _page={page.TORRENT_MANAGER} icon='download' text='Torrents' css='d-none d-sm-block' let:active>
       <Download size='3.6rem' class='flex-shrink-0 p-5 m-5 rounded' strokeWidth='2.5' color={active ? 'currentColor' : 'var(--gray-color-very-dim)'} />
     </NavbarLink>
