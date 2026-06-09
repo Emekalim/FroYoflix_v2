@@ -81,6 +81,7 @@
     clampTimeToDuration,
     shouldAutoComplete,
   } from "@/modules/playback/progress.js";
+  import { createAudioGainManager } from "@/modules/playback/audioGain.js";
   import {
     X,
     Minus,
@@ -176,12 +177,8 @@
   let pip = false;
   let isFullscreen = false;
   let ended = false;
-  let gain = 0;
-  let volume = Number(cache.getEntry(caches.GENERAL, "volume")) || 1;
-  let volumeBoosted = false;
-  let audioCtx = null;
-  let source = null;
-  let gainNode = null;
+  const audio = createAudioGainManager({ cache, caches });
+  const { gain, volume, volumeBoosted } = audio;
   let playbackRate = 1;
   let startupBufferRequest = 0;
   let startupBufferPending = false;
@@ -189,7 +186,6 @@
   let initialStartPosition = 0;
   let initialStartPositionApplied = false;
   let handoffDurationFallback = null;
-  $: cache.setEntry(caches.GENERAL, "volume", String(volume || 0));
   $: builtinSource =
     $playbackSession?.target === PLAYBACK_TARGET.BUILTIN
       ? $playbackSession.source
@@ -227,7 +223,7 @@
   $: playbackMuted = castPlaybackActive ? Boolean(castMediaState?.muted) : muted;
   $: playbackVolume = castPlaybackActive
     ? Math.max(0, Math.min(1, Number(castMediaState?.volume ?? 1)))
-    : volume;
+    : $volume;
   $: displayedTime = wasPaused == null ? playbackCurrentTime : targetTime;
   $: {
     if (hidden) setDiscordRPC(media, video?.currentTime);
@@ -245,31 +241,8 @@
     }
   });
 
-  function setupAudio() {
-    if (!audioCtx) {
-      audioCtx = new AudioContext();
-      source = audioCtx.createMediaElementSource(video);
-      gainNode = audioCtx.createGain();
-      source.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-    }
-  }
-
   function checkAudio() {
-    volumeBoosted =
-      cache.getEntry(caches.HISTORY, "lastBoosted")?.[buildMediaCacheKey(media)]
-        ?.boosted || false;
-    if (volumeBoosted) {
-      setupAudio();
-      gain =
-        cache.getEntry(caches.HISTORY, "lastBoosted")?.[
-          buildMediaCacheKey(media)
-        ]?.gain || 0;
-      gainNode.gain.value = gain;
-    } else {
-      if (gainNode?.gain) gainNode.gain.value = volume;
-      gain = 0;
-    }
+    audio.restoreBoostForMedia(buildMediaCacheKey(media), video);
     if (!hls && "audioTracks" in HTMLVideoElement.prototype) {
       if (!video.audioTracks.length) {
         toast.error("Audio Codec Unsupported", {
@@ -1177,33 +1150,11 @@
   }
   function setGain(event) {
     if (castPlaybackActive) return;
-    let value = parseFloat(event.target.value);
-    if (value <= 1) {
-      gainNode.gain.value = 1;
-      volume = value;
-    } else {
-      volume = 1;
-      gainNode.gain.value = value;
-    }
-    gain = value;
-    cache.setEntry(caches.HISTORY, "lastBoosted", {
-      ...(cache.getEntry(caches.HISTORY, "lastBoosted") || {}),
-      [buildMediaCacheKey(media)]: { boosted: volumeBoosted, gain },
-    });
+    audio.setGain(parseFloat(event.target.value), buildMediaCacheKey(media));
   }
   function toggleGain() {
     if (castPlaybackActive) return;
-    setupAudio();
-    if (volumeBoosted) {
-      volume = gain <= 1 ? gain : 1;
-      gain = 1;
-      if (audioCtx) gainNode.gain.value = 1;
-    } else setGain({ target: { value: volume } });
-    volumeBoosted = !volumeBoosted;
-    cache.setEntry(caches.HISTORY, "lastBoosted", {
-      ...(cache.getEntry(caches.HISTORY, "lastBoosted") || {}),
-      [buildMediaCacheKey(media)]: { boosted: volumeBoosted, gain },
-    });
+    audio.toggleGain(buildMediaCacheKey(media), video);
   }
   async function toggleMute() {
     if (castPlaybackActive) {
@@ -1226,7 +1177,7 @@
       }
       return;
     }
-    volume = value;
+    $volume = value;
   }
 
   function handleVolumeInput(event) {
@@ -1773,8 +1724,8 @@
         if (viewAnime) return;
         e.stopImmediatePropagation();
         e.preventDefault();
-        if (!castPlaybackActive && volumeBoosted)
-          setGain({ target: { value: Math.min(3, gain + 0.05) } });
+        if (!castPlaybackActive && $volumeBoosted)
+          setGain({ target: { value: Math.min(3, $gain + 0.05) } });
         else adjustPlaybackVolume(0.05);
       },
       id: "volume_up",
@@ -1787,8 +1738,8 @@
         if (viewAnime) return;
         e.stopImmediatePropagation();
         e.preventDefault();
-        if (!castPlaybackActive && volumeBoosted)
-          setGain({ target: { value: Math.max(0, gain - 0.05) } });
+        if (!castPlaybackActive && $volumeBoosted)
+          setGain({ target: { value: Math.max(0, $gain - 0.05) } });
         else adjustPlaybackVolume(-0.05);
       },
       id: "volume_down",
@@ -2658,7 +2609,7 @@
     bind:videoHeight
     bind:videoWidth
     bind:this={video}
-    bind:volume
+    bind:volume={$volume}
     bind:duration
     bind:currentTime
     bind:paused
@@ -3053,7 +3004,7 @@
           <Volume2 size="2rem" fill="currentColor" />
         {/if}
       </span>
-        {#if castPlaybackActive || !volumeBoosted}
+        {#if castPlaybackActive || !$volumeBoosted}
           <input
             class="ctrl h-full custom-range"
             tabindex="-1"
@@ -3068,21 +3019,21 @@
         {:else}
           <input
             class="ctrl h-full custom-range"
-            class:boost-color={gain > 1}
+            class:boost-color={$gain > 1}
             tabindex="-1"
             type="range"
             min="0"
             max="3"
             step="any"
             data-name="setVolume"
-            bind:value={gain}
+            bind:value={$gain}
             on:input={setGain}
           />
         {/if}
-        {#if !castPlaybackActive && (volume === 1 || volumeBoosted)}
+        {#if !castPlaybackActive && ($volume === 1 || $volumeBoosted)}
           <span
             class="icon ctrl boost p-0 mt-15 d-flex align-items-center justify-content-center text-white"
-            class:boost-color={volumeBoosted}
+            class:boost-color={$volumeBoosted}
             title="Increase Volume Limit [V]"
             data-name="toggleGain"
             use:click={toggleGain}
