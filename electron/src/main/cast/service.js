@@ -218,6 +218,7 @@ export class CastSenderService {
     this.mediaPollInterval = null
     this.state = createDefaultState()
     this.closeReason = null
+    this.endingSession = false
 
     this.registerIpc()
   }
@@ -580,6 +581,11 @@ export class CastSenderService {
 
     player.on('close', () => {
       if (this.player !== player) return
+      // During a deliberate endSession(), client.stop() emits this 'close'
+      // synchronously (before it sends the STOP command). Tearing the socket
+      // down here would race that send and throw. endSession() owns the
+      // teardown in that case, so skip it.
+      if (this.endingSession) return
       this.stopMediaPolling()
       this.closeReason ||= 'ended'
       if (this.client === client) client.close()
@@ -805,36 +811,41 @@ export class CastSenderService {
     const player = this.player
     this.stopMediaPolling()
     this.closeReason = 'ended'
-
-    await new Promise((resolve, reject) => {
-      client.stop(player, (error) => {
-        if (error) {
-          reject(error)
-          return
-        }
-        resolve()
-      })
-    }).catch((error) => {
-      if (isStaleDisconnectError(error)) {
-        try {
-          client.close()
-        } catch {}
-        return null
-      }
-      this.closeReason = 'error'
-      client.close()
-      this.clearActiveSession({
-        bridgeStatus: 'error',
-        sessionState: 'SESSION_ERROR',
-        lastError: updateLastErrorFromError(error)
-      })
-      throw error
-    })
+    this.endingSession = true
 
     try {
-      client.close()
-    } catch {}
-    return this.clearActiveSession({ sessionState: 'SESSION_ENDED' })
+      await new Promise((resolve, reject) => {
+        client.stop(player, (error) => {
+          if (error) {
+            reject(error)
+            return
+          }
+          resolve()
+        })
+      }).catch((error) => {
+        if (isStaleDisconnectError(error)) {
+          try {
+            client.close()
+          } catch {}
+          return null
+        }
+        this.closeReason = 'error'
+        client.close()
+        this.clearActiveSession({
+          bridgeStatus: 'error',
+          sessionState: 'SESSION_ERROR',
+          lastError: updateLastErrorFromError(error)
+        })
+        throw error
+      })
+
+      try {
+        client.close()
+      } catch {}
+      return this.clearActiveSession({ sessionState: 'SESSION_ENDED' })
+    } finally {
+      this.endingSession = false
+    }
   }
 
   async destroy() {

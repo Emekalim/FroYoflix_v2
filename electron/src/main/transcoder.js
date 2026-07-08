@@ -802,12 +802,14 @@ export class Transcoder {
                     '-bufsize', '24M',
                     '-force_key_frames', 'expr:gte(t,n_forced*6)',
                     '-sc_threshold', '0',
-                    '-fflags', '+genpts',
-                    '-vsync', '0',
+                    // CFR output + async audio resampling keep A/V in sync on
+                    // VFR/jittery-PTS sources — passthrough timestamps drift on Cast.
+                    '-vsync', 'cfr',
                     '-c:a', 'aac',
                     '-b:a', '128k',
                     '-ac', '2',
-                    '-ar', '48000'
+                    '-ar', '48000',
+                    '-af', 'aresample=async=1'
                 )
             }
 
@@ -818,8 +820,13 @@ export class Transcoder {
                 '-start_number', '0'
             )
 
+            // genpts is a demuxer flag — it only repairs broken source PTS when
+            // applied to the input, not the output.
+            const inputOptions = ['-fflags +genpts']
+            if (this.encoder !== 'libx264' && !useRepaired) inputOptions.push('-hwaccel auto')
+
             const command = ffmpeg(inputPath)
-                .inputOptions(this.encoder !== 'libx264' && !useRepaired ? ['-hwaccel auto'] : [])
+                .inputOptions(inputOptions)
                 .outputOptions(outputOptions)
                 .output(join(cacheDir, 'playlist.m3u8'))
                 .on('start', (cmd) => {
@@ -904,6 +911,8 @@ export class Transcoder {
         if (this.encoder !== 'libx264' && !useRepaired) {
             args.push('-hwaccel', 'auto')
         }
+        // genpts is a demuxer flag — must precede -i to repair broken source PTS.
+        args.push('-fflags', '+genpts')
         args.push('-i', inputPath)
 
         // Video output — mux video + default audio into the same segments so
@@ -916,8 +925,11 @@ export class Transcoder {
             // Force 8-bit 4:2:0 output for Cast-compatible HLS variants.
             '-pix_fmt', 'yuv420p',
             '-force_key_frames', 'expr:gte(t,n_forced*6)',
-            '-sc_threshold', '0', '-fflags', '+genpts', '-vsync', '0',
+            // CFR output + async audio resampling keep A/V in sync on
+            // VFR/jittery-PTS sources — passthrough timestamps drift on Cast.
+            '-sc_threshold', '0', '-vsync', 'cfr',
             '-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-ar', '48000',
+            '-af', 'aresample=async=1',
             '-hls_time', '6', '-hls_list_size', '0',
             '-hls_flags', 'independent_segments+split_by_time',
             '-hls_segment_filename', join(cacheDir, 'segment_%03d.ts'),
@@ -931,6 +943,7 @@ export class Transcoder {
             args.push(
                 '-map', `0:${audioStreams[idx].index}`,
                 '-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-ar', '48000',
+                '-af', 'aresample=async=1',
                 '-hls_time', '6', '-hls_list_size', '0',
                 '-hls_flags', 'independent_segments+split_by_time',
                 '-hls_segment_filename', join(cacheDir, `audio_${idx}_%03d.ts`),

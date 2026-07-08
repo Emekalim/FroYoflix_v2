@@ -43,6 +43,72 @@ export default class TorrentClient extends WebTorrent {
     }
   }
 
+  getActivityPayload() {
+    const currentTorrent = this.torrents.find(torrent => torrent.current)
+    return {
+      current: {
+        infoHash: currentTorrent?.infoHash,
+        name: currentTorrent?.name,
+        size: currentTorrent?.length,
+        current: currentTorrent?.current,
+        progress: currentTorrent?.progress,
+        numSeeders: currentTorrent?.wires?.filter(wire => wire.isSeeder).length || 0,
+        totalSeeders: currentTorrent?.seeders || 0,
+        numLeechers: (currentTorrent?.wires?.length - currentTorrent?.wires?.filter(wire => wire.isSeeder).length) || 0,
+        totalLeechers: currentTorrent?.leechers || 0,
+        numPeers: currentTorrent?.numPeers || 0,
+        downloadSpeed: currentTorrent?.downloadSpeed || 0,
+        uploadSpeed: currentTorrent?.uploadSpeed || 0,
+        magnetURI: currentTorrent?.magnetURI,
+        date: currentTorrent?.date ?? new Date(Date.now() - 1_000).toUTCString(),
+        eta: currentTorrent?.timeRemaining,
+        ratio: currentTorrent?.ratio
+      },
+      staging: this.torrents.filter(torrent => torrent.staging).map(torrent => ({
+        infoHash: torrent.infoHash,
+        name: torrent.name,
+        size: torrent.length,
+        staging: torrent.staging,
+        progress: torrent.progress,
+        numSeeders: torrent.wires.filter(wire => wire.isSeeder).length || 0,
+        totalSeeders: torrent?.seeders || 0,
+        numLeechers: (torrent.wires.length - torrent.wires.filter(wire => wire.isSeeder).length) || 0,
+        totalLeechers: torrent.leechers || 0,
+        numPeers: torrent.numPeers,
+        downloadSpeed: torrent.downloadSpeed,
+        uploadSpeed: torrent.uploadSpeed,
+        magnetURI: torrent.magnetURI,
+        date: torrent.date ?? new Date(Date.now() - 1_000).toUTCString(),
+        eta: torrent.timeRemaining,
+        ratio: torrent.ratio
+      })),
+      seeding: this.torrents.filter(torrent => torrent.seeding).map(torrent => ({
+        infoHash: torrent.infoHash,
+        name: torrent.name,
+        size: torrent.length,
+        seeding: torrent.seeding,
+        progress: torrent.progress,
+        numSeeders: torrent.wires.filter(wire => wire.isSeeder).length || 0,
+        totalSeeders: torrent?.seeders || 0,
+        numLeechers: (torrent.wires.length - torrent.wires.filter(wire => wire.isSeeder).length) || 0,
+        totalLeechers: torrent.leechers || 0,
+        numPeers: torrent.numPeers,
+        downloadSpeed: torrent.downloadSpeed,
+        uploadSpeed: torrent.uploadSpeed,
+        magnetURI: torrent.magnetURI,
+        date: torrent.date ?? new Date(Date.now() - 1_000).toUTCString(),
+        ratio: torrent.ratio
+      }))
+    }
+  }
+
+  dispatchActivity() {
+    if (this.destroyed) return
+    const currentTorrent = this.torrents.find(torrent => torrent.current)
+    if (currentTorrent?.pieces) this.dispatch('progress', this.currentFile?.progress)
+    this.dispatch('activity', this.getActivityPayload())
+  }
+
   /**
    * Creates a new TorrentClient instance.
    * @param {any} ipc - Inter-process communication interface.
@@ -99,64 +165,7 @@ export default class TorrentClient extends WebTorrent {
     this.intervals.push(statsInterval)
     statsInterval.unref?.()
     const activityInterval = setInterval(() => {
-      if (this.destroyed) return
-      const currentTorrent = this.torrents.find(torrent => torrent.current)
-      if (currentTorrent?.pieces) this.dispatch('progress', this.currentFile?.progress)
-      this.dispatch('activity', {
-        current: {
-          infoHash: currentTorrent?.infoHash,
-          name: currentTorrent?.name,
-          size: currentTorrent?.length,
-          current: currentTorrent?.current,
-          progress: currentTorrent?.progress,
-          numSeeders: currentTorrent?.wires?.filter(wire => wire.isSeeder).length || 0,
-          totalSeeders: currentTorrent?.seeders || 0,
-          numLeechers: (currentTorrent?.wires?.length - currentTorrent?.wires?.filter(wire => wire.isSeeder).length) || 0,
-          totalLeechers: currentTorrent?.leechers || 0,
-          numPeers: currentTorrent?.numPeers || 0,
-          downloadSpeed: currentTorrent?.downloadSpeed || 0,
-          uploadSpeed: currentTorrent?.uploadSpeed || 0,
-          magnetURI: currentTorrent?.magnetURI,
-          date: currentTorrent?.date ?? new Date(Date.now() - 1_000).toUTCString(),
-          eta: currentTorrent?.timeRemaining,
-          ratio: currentTorrent?.ratio
-        },
-        staging: this.torrents.filter(torrent => torrent.staging).map(torrent => ({
-          infoHash: torrent.infoHash,
-          name: torrent.name,
-          size: torrent.length,
-          staging: torrent.staging,
-          progress: torrent.progress,
-          numSeeders: torrent.wires.filter(wire => wire.isSeeder).length || 0,
-          totalSeeders: torrent?.seeders || 0,
-          numLeechers: (torrent.wires.length - torrent.wires.filter(wire => wire.isSeeder).length) || 0,
-          totalLeechers: torrent.leechers || 0,
-          numPeers: torrent.numPeers,
-          downloadSpeed: torrent.downloadSpeed,
-          uploadSpeed: torrent.uploadSpeed,
-          magnetURI: torrent.magnetURI,
-          date: torrent.date ?? new Date(Date.now() - 1_000).toUTCString(),
-          eta: torrent.timeRemaining,
-          ratio: torrent.ratio
-        })),
-        seeding: this.torrents.filter(torrent => torrent.seeding).map(torrent => ({
-          infoHash: torrent.infoHash,
-          name: torrent.name,
-          size: torrent.length,
-          seeding: torrent.seeding,
-          progress: torrent.progress,
-          numSeeders: torrent.wires.filter(wire => wire.isSeeder).length || 0,
-          totalSeeders: torrent?.seeders || 0,
-          numLeechers: (torrent.wires.length - torrent.wires.filter(wire => wire.isSeeder).length) || 0,
-          totalLeechers: torrent.leechers || 0,
-          numPeers: torrent.numPeers,
-          downloadSpeed: torrent.downloadSpeed,
-          uploadSpeed: torrent.uploadSpeed,
-          magnetURI: torrent.magnetURI,
-          date: torrent.date ?? new Date(Date.now() - 1_000).toUTCString(),
-          ratio: torrent.ratio
-        }))
-      })
+      this.dispatchActivity()
     }, 5_000)
     this.intervals.push(activityInterval)
     activityInterval.unref?.()
@@ -181,7 +190,7 @@ export default class TorrentClient extends WebTorrent {
     debug('Loading last torrent: ', JSON.stringify(torrent))
     if (!torrent?.length && !(typeof torrent === 'object' && Object.keys(torrent).length)) return
     const cache = await this.torrentCache.get(torrent?.infoHash || await getInfoHash(torrent))
-    this.addTorrent(torrent?.id ?? torrent, cache, true)
+    await this.addTorrent(torrent?.id ?? torrent, cache, true)
   }
 
   hasPlaybackLock() {
@@ -493,7 +502,7 @@ export default class TorrentClient extends WebTorrent {
     if (this.destroyed) return
     switch (data.type) {
       case 'load': {
-        this.loadLastTorrent(data.data)
+        await this.loadLastTorrent(data.data)
         break
       } case 'destroy': {
         this.destroy()
@@ -605,13 +614,13 @@ export default class TorrentClient extends WebTorrent {
         const torrentID = data.data.base64 ? new Uint8Array(Buffer.from(dataID, 'base64')) : dataID
         const cache = await this.torrentCache.get(hash || (await getInfoHash(torrentID)))
         if (!cache?.infoHash && data.data.magnet) this.dispatch('info', 'A Magnet Link has been detected and is being processed. Files will be loaded shortly...')
-        this.addTorrent(torrentID, cache, true)
+        await this.addTorrent(torrentID, cache, true)
         break
       } case 'stage': {
         const hash = data.data && data.data.hash
         const torrentID = data.data && data.data.id
         const cache = await this.torrentCache.get(hash || (await getInfoHash(torrentID)))
-        this.addTorrent(torrentID, cache)
+        await this.addTorrent(torrentID, cache)
         break
       } case 'detach': {
         const current = this.torrents.find(torrent => torrent.current)
@@ -654,7 +663,7 @@ export default class TorrentClient extends WebTorrent {
       } case 'stage_all': {
         for (const hash of data.data) {
           const cache = await this.torrentCache.get(hash)
-          if (cache) this.addTorrent(cache, cache)
+          if (cache) await this.addTorrent(cache, cache)
           else this.dispatch('untrack', hash)
         }
         debug('Loaded staging torrents:', JSON.stringify(data.data))
@@ -662,7 +671,7 @@ export default class TorrentClient extends WebTorrent {
       } case 'seed_all': {
         for (const hash of data.data) {
           const cache = await this.torrentCache.get(hash)
-          if (cache && await this.torrentCache.exists(cache.name, this.torrentPath)) this.addTorrent(cache, cache)
+          if (cache && await this.torrentCache.exists(cache.name, this.torrentPath)) await this.addTorrent(cache, cache)
           else this.dispatch('untrack', hash)
         }
         debug('Loaded seeding torrents:', JSON.stringify(data.data))
@@ -684,7 +693,7 @@ export default class TorrentClient extends WebTorrent {
             magnetURI: cache.magnetURI,
             date: new Date(Date.now() - 1_000).toUTCString(),
             incomplete: torrentStats.progress < 1 || !verified,
-            missing: !verified,
+            missing_pieces: !verified,
             incomingPath: cache._froyoPath || this.getIncomingPath(cache.infoHash),
             files: (cache.files || []).map(file => ({
               name: file.name,
@@ -696,6 +705,9 @@ export default class TorrentClient extends WebTorrent {
         this.completed = Array.from(new Map([...(this.completed || []), ...(stats.filter(Boolean) || [])].map(item => [item.infoHash, item])).values())
         this.dispatch('completedStats', this.completed.reverse())
         debug('Loaded completed torrents:', JSON.stringify(data.data))
+        break
+      } case 'sync_activity': {
+        this.dispatchActivity()
         break
       } case 'unload': {
         if (!data.data && this.torrents.find(torrent => torrent.current)) {

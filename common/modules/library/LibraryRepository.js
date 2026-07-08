@@ -224,6 +224,22 @@ function isPlayableEpisodeItem(item) {
   return !!item?.preferredFile?.absolutePath && item?.statusSummary !== 'missing'
 }
 
+const EPISODIC_MEDIA_TYPES = ['tv', 'anime']
+
+function isEpisodicMediaType(mediaType) {
+  return EPISODIC_MEDIA_TYPES.includes(mediaType)
+}
+
+function isAnimeMovieItem(item) {
+  if (item?.mediaType !== 'anime') return false
+  const format = item?.media?.format || item?.mediaSnapshot?.format
+  return format === 'MOVIE'
+}
+
+function isEpisodicItem(item) {
+  return isEpisodicMediaType(item?.mediaType) && !isAnimeMovieItem(item)
+}
+
 function buildShowGroupKey(item) {
   if (item?.provider && item?.mediaId) return `${item.provider}:${item.mediaId}`
   return `title:${String(item?.canonicalTitle || item?.preferredFile?.absolutePath || item?.itemId || '').toLowerCase()}`
@@ -317,11 +333,13 @@ function toShowItem(repository, items) {
     entry.missingEpisodes = unique(entry.missingEpisodes).sort((a, b) => a - b)
   }
 
+  const mediaType = isEpisodicMediaType(leadItem.mediaType) ? leadItem.mediaType : 'tv'
+
   return {
     itemId: `show:${buildShowGroupKey(leadItem)}`,
     provider: leadItem.provider,
     mediaId: leadItem.mediaId,
-    mediaType: 'tv',
+    mediaType,
     canonicalTitle: leadItem.canonicalTitle,
     statusSummary: hasAvailableEpisodes ? 'imported' : 'missing',
     preferredFile: playableItem?.preferredFile || null,
@@ -336,7 +354,7 @@ function toShowItem(repository, items) {
       canonicalTitle: leadItem.canonicalTitle,
       provider: leadItem.provider,
       mediaId: leadItem.mediaId,
-      mediaType: 'tv',
+      mediaType,
       seasons,
       episodes,
       preferredEpisodeItemId: playableItem?.itemId || null,
@@ -693,11 +711,11 @@ class LibraryRepository {
     return file
   }
 
-  listShows({ query = '', status, subtitles, watchState, season, sort = 'recent' } = {}) {
+  listShows({ query = '', status, subtitles, watchState, season, sort = 'recent', mediaTypes = EPISODIC_MEDIA_TYPES } = {}) {
     const queryText = query.trim().toLowerCase()
     const groups = new Map()
     const episodeItems = this.listPrefix(TYPE_PREFIX.item)
-      .filter(item => item.mediaType === 'tv')
+      .filter(item => mediaTypes.includes(item.mediaType) && isEpisodicItem(item))
       .map(item => toLibraryItem(this, item))
       .filter(item => item.preferredFile || item.statusSummary === 'missing')
 
@@ -736,7 +754,7 @@ class LibraryRepository {
 
   listItems({ section, query = '', mediaType, status, subtitles, watchState, season, sort = 'recent' } = {}) {
     if (section === 'shows' || mediaType === 'tv') {
-      return this.listShows({ query, status, subtitles, watchState, season, sort })
+      return this.listShows({ query, status, subtitles, watchState, season, sort, mediaTypes: ['tv'] })
     }
 
     const queryText = query.trim().toLowerCase()
@@ -762,9 +780,9 @@ class LibraryRepository {
     if (watchState === 'completed') items = items.filter(item => item.watch?.completed)
     if (season != null) items = items.filter(item => Number(item.season || 1) === Number(season))
 
-    const tvEpisodes = items.filter(item => item.mediaType === 'tv')
+    const tvEpisodes = items.filter(isEpisodicItem)
     if (tvEpisodes.length > 0) {
-      const nonTvItems = items.filter(item => item.mediaType !== 'tv')
+      const nonTvItems = items.filter(item => !isEpisodicItem(item))
       const groups = new Map()
       for (const item of tvEpisodes) {
         const key = buildShowGroupKey(item)
@@ -814,11 +832,11 @@ class LibraryRepository {
     const sectionItems = [...baseItems, ...unmatched]
       .filter(item => item.preferredFile || item.statusSummary === 'unmatched' || item.statusSummary === 'missing')
 
-    const tvEpisodes = baseItems.filter(item => item.mediaType === 'tv')
+    const episodicItems = baseItems.filter(isEpisodicItem)
     let showItems = []
-    if (tvEpisodes.length > 0) {
+    if (episodicItems.length > 0) {
       const groups = new Map()
-      for (const item of tvEpisodes) {
+      for (const item of episodicItems) {
         const key = buildShowGroupKey(item)
         const group = groups.get(key) || []
         group.push(item)
@@ -827,7 +845,7 @@ class LibraryRepository {
       showItems = Array.from(groups.values()).map(g => toShowItem(this, g)).filter(Boolean)
     }
 
-    const processed = [...showItems, ...sectionItems.filter(item => item.mediaType !== 'tv')]
+    const processed = [...showItems, ...sectionItems.filter(item => !isEpisodicItem(item))]
     processed.sort((a, b) => libraryRecentTime(b) - libraryRecentTime(a))
     unmatched.sort((a, b) => libraryRecentTime(b) - libraryRecentTime(a))
 
@@ -835,7 +853,7 @@ class LibraryRepository {
       { title: 'Continue Watching', section: 'continue', items: processed.filter(i => i.watch && !i.watch.completed && (i.watch.percent || 0) > 0).slice(0, limit) },
       { title: 'Recently Added',    section: 'recent',   items: processed.filter(i => i.statusSummary === 'imported').slice(0, limit) },
       { title: 'Movies',            section: 'movies',   items: processed.filter(i => i.mediaType === 'movie').slice(0, limit) },
-      { title: 'Shows',             section: 'shows',    items: showItems.slice(0, limit) },
+      { title: 'Shows',             section: 'shows',    items: showItems.filter(i => i.mediaType === 'tv').slice(0, limit) },
       { title: 'Anime',             section: 'anime',    items: processed.filter(i => i.mediaType === 'anime').slice(0, limit) },
       { title: 'Unmatched Files',   section: 'unmatched',items: unmatched.slice(0, limit) },
     ].filter(s => s.items.length > 0)

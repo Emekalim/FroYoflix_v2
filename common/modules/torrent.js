@@ -204,24 +204,25 @@ function deduplicateTorrents(hash, ..._caches) {
   }
 }
 
+function pushErrorNotification(title, message, key = message) {
+  window.dispatchEvent(new CustomEvent('notification-app', {
+    detail: {
+      key: `torrent-error-${key}`,
+      title,
+      message,
+      timestamp: Date.now() / 1000,
+      severity: 'error',
+      source: 'torrent',
+      read: false
+    }
+  }))
+}
+
 function setupTorrentClient() {
   loadedTorrent.value = {}
   stagingTorrents.value = []
   seedingTorrents.value = []
   completedTorrents.value = []
-  if (!settings.value.disableStartupTorrent) {
-    client.send('load', cache.getEntry(caches.GENERAL, 'loadedTorrent'))
-    client.send('stage_all', cache.getEntry(caches.GENERAL, 'stagingTorrents').filter(Boolean))
-    client.send('seed_all', cache.getEntry(caches.GENERAL, 'seedingTorrents').filter(Boolean))
-  } else {
-    debug(`Unloading torrent(s) from previous session`)
-    client.send('unload', cache.getEntry(caches.GENERAL, 'loadedTorrent'))
-    cache.setEntry(caches.GENERAL, 'loadedTorrent', {})
-    cache.setEntry(caches.GENERAL, 'completedTorrents', Array.from(new Set([...(cache.getEntry(caches.GENERAL, 'completedTorrents') || []), ...(cache.getEntry(caches.GENERAL, 'seedingTorrents') || []), ...(cache.getEntry(caches.GENERAL, 'stagingTorrents') || [])])))
-    cache.setEntry(caches.GENERAL, 'stagingTorrents', [])
-    cache.setEntry(caches.GENERAL, 'seedingTorrents', [])
-  }
-  client.send('complete_all', cache.getEntry(caches.GENERAL, 'completedTorrents').filter(Boolean))
 
   for (const event of ['magnet', 'stats', 'chapters', 'progress', 'scrape_done', 'rescan_done']) client.on(event, ({ detail }) => WPC.send(event, detail))
   for (const event of ['current', 'scrape', 'debug']) WPC.listen(event, (detail) => client.send(event, detail))
@@ -325,16 +326,25 @@ function setupTorrentClient() {
   })
   client.on('completedStats', ({ detail }) => {
     WPC.send('rescan_done')
-    completedTorrents.update(torrents => [...Array.from(new Map(detail.map(torrent => [torrent.infoHash, torrent])).values()), ...torrents])
+    const stats = Array.from(new Map((detail || []).filter(Boolean).map(torrent => [torrent.infoHash, torrent])).values())
+    const completedHashes = stats.map(torrent => torrent.infoHash).filter(Boolean)
+    for (const hash of completedHashes) {
+      deduplicateTorrents(hash, 'stagingTorrents', 'seedingTorrents')
+    }
+    stagingTorrents.update(torrents => torrents.filter(torrent => !completedHashes.includes(torrent.infoHash)))
+    seedingTorrents.update(torrents => torrents.filter(torrent => !completedHashes.includes(torrent.infoHash)))
+    completedTorrents.update(torrents => [...stats, ...torrents.filter(torrent => !completedHashes.includes(torrent.infoHash))])
   })
 
   client.on('error', ({ detail }) => {
+    const description = '' + (detail.message || detail)
     debug(`Error:`, detail.message || JSON.stringify(detail))
+    pushErrorNotification('Torrent Error', description)
     if (settings.value.toasts.includes('All') || settings.value.toasts.includes('Errors')) {
       for (const exclude of excludedToastMessages) {
         if ((detail.message || detail)?.toLowerCase()?.includes(exclude)) return
       }
-      toast.error('Torrent Error', { description: '' + (detail.message || detail) })
+      toast.error('Torrent Error', { description })
     }
   })
   client.on('warn', ({ detail }) => {
@@ -353,4 +363,20 @@ function setupTorrentClient() {
     }
     toast('Torrent Info', { description: '' + (detail.message || detail) })
   })
+
+  if (!settings.value.disableStartupTorrent) {
+    client.send('complete_all', (cache.getEntry(caches.GENERAL, 'completedTorrents') || []).filter(Boolean))
+    client.send('load', cache.getEntry(caches.GENERAL, 'loadedTorrent'))
+    client.send('stage_all', (cache.getEntry(caches.GENERAL, 'stagingTorrents') || []).filter(Boolean))
+    client.send('seed_all', (cache.getEntry(caches.GENERAL, 'seedingTorrents') || []).filter(Boolean))
+  } else {
+    debug(`Unloading torrent(s) from previous session`)
+    client.send('unload', cache.getEntry(caches.GENERAL, 'loadedTorrent'))
+    cache.setEntry(caches.GENERAL, 'loadedTorrent', {})
+    cache.setEntry(caches.GENERAL, 'completedTorrents', Array.from(new Set([...(cache.getEntry(caches.GENERAL, 'completedTorrents') || []), ...(cache.getEntry(caches.GENERAL, 'seedingTorrents') || []), ...(cache.getEntry(caches.GENERAL, 'stagingTorrents') || [])])))
+    cache.setEntry(caches.GENERAL, 'stagingTorrents', [])
+    cache.setEntry(caches.GENERAL, 'seedingTorrents', [])
+    client.send('complete_all', (cache.getEntry(caches.GENERAL, 'completedTorrents') || []).filter(Boolean))
+  }
+  client.send('sync_activity')
 }

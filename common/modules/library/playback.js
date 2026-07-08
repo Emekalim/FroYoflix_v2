@@ -111,6 +111,7 @@ function buildAnimeLibraryShow(item) {
   const selectedItem = hydrateLibraryItem(item)
   const episodes = libraryRepository
     .listItems({ mediaType: 'anime' })
+    .flatMap(candidate => candidate?.libraryShow?.episodes || [candidate])
     .filter(candidate => !candidate?.libraryShow && sameLibrarySeries(candidate, selectedItem))
     .map(hydrateLibraryItem)
     .filter(candidate => getEpisodeNumbers(candidate).length > 0)

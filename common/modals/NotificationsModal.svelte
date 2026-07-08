@@ -3,7 +3,7 @@
   import { click, hoverExit, blurExit } from '@/modules/click.js'
   import { getHash } from '@/modules/anime/animehash.js'
   import { createListener, matchPhrase, matchKeys, debounce, since, isValidNumber } from '@/modules/util.js'
-  import { Search, MailCheck, MailOpen, Play, X } from 'lucide-svelte'
+  import { Search, MailCheck, MailOpen, Play, X, CircleAlert } from 'lucide-svelte'
   import TorrentButton, { playActive } from '@/components/TorrentButton.svelte'
   import ErrorCard from '@/components/cards/ErrorCard.svelte'
   import SoftModal from '@/components/modals/SoftModal.svelte'
@@ -53,10 +53,21 @@
     debounceNotification()
   }
 
+  function isMediaNotification(notification) {
+    return notification?.id != null
+  }
+
+  function getNotificationKey(notification) {
+    if (!notification) return 'notification'
+    if (notification.key) return notification.key
+    if (isMediaNotification(notification)) return `${notification.id}-${notification.episode}-${notification.dub}-${notification.click_action}`
+    return `${notification.title}-${notification.message}-${notification.severity || 'info'}`
+  }
+
   function dedupeNotifications(notifications) {
     const map = new Map()
     for (const notification of notifications) {
-      const key = `${notification.detail.id}-${notification.detail.episode}-${notification.detail.dub}`
+      const key = getNotificationKey(notification.detail)
       const existing = map.get(key)
       if (!existing || (notification.detail.click_action === 'TORRENT' && existing.detail.click_action !== 'TORRENT')) map.set(key, notification)
     }
@@ -91,6 +102,11 @@
 
   function addNotification(notification) {
     notifications.update((n) => {
+      if (!isMediaNotification(notification)) {
+        const key = getNotificationKey(notification)
+        const filtered = n.filter((existing) => getNotificationKey(existing) !== key)
+        return sort([{ ...notification }, ...filtered])
+      }
       const filterDelayed = n.filter((existing) => { // Remove existing notifications based on delayed status and conditions
         if (notification.delayed) return !(existing.id === notification.id && existing.episode === notification.episode && existing.dub === true && existing.click_action === 'PLAY') // If the new notification is delayed, remove all matching notifications
         else return !(existing.id === notification.id && existing.episode === notification.episode && existing.delayed === true) // If the new notification is not delayed, remove any existing delayed notifications
@@ -124,6 +140,7 @@
   function markRead(media) {
     notifications.update((n) => {
       return n.map((existing) => {
+        if (!isMediaNotification(existing)) return existing
         if (existing.id === media.id && ((media.episode >= existing.episode) || (isValidNumber(existing.season) && (media.episode >= media.episodes)))) existing.read = true
         return existing
       })
@@ -132,7 +149,7 @@
 
   async function markWatchedAsRead() {
     const updates = []
-    for (const { notification, media } of await Promise.all($notifications.filter(notification => !notification.read).map(notification => cache.requestMedia(notification.id).then(media => ({ notification, media }))))) {
+    for (const { notification, media } of await Promise.all($notifications.filter(notification => !notification.read && isMediaNotification(notification)).map(notification => cache.requestMedia(notification.id).then(media => ({ notification, media }))))) {
       const delayed = notification.delayed
       const announcement = notification.click_action === 'VIEW' && !delayed
       const notWatching = !announcement && !delayed && ((!media?.mediaListEntry?.progress) || (media?.mediaListEntry?.progress === 0 && (media?.mediaListEntry?.status !== 'CURRENT' || media?.mediaListEntry?.status !== 'REPEATING' && media?.mediaListEntry?.status !== 'COMPLETED')))
@@ -154,6 +171,10 @@
 
   function onclick(notification, view) {
     close()
+    if (!isMediaNotification(notification)) {
+      if (notification?.activation?.launch) window.location.href = notification.activation.launch
+      return
+    }
     if (view) {
       window.dispatchEvent(new CustomEvent('open-anime', { detail: { id: notification.id } }))
     } else playActive(notification.hash, { media: { id: notification.id }, episode: notification.episode }, notification.magnet, notification.click_action === 'PLAY')
@@ -167,7 +188,7 @@
   let searchText = ''
   function filterResults(results, searchText) {
     if (!searchText?.length) return results
-    return results.filter(({ id, title }) => matchPhrase(searchText, title, 0.4, false, true) || matchKeys(cache.getMedia(id), searchText, ['title.userPreferred', 'title.english', 'title.romaji', 'title.native', 'synonyms'], 0.4)) || []
+    return results.filter(({ id, title, message }) => matchPhrase(searchText, `${title || ''} ${message || ''}`.trim(), 0.4, false, true) || (id != null && matchKeys(cache.getMedia(id), searchText, ['title.userPreferred', 'title.english', 'title.romaji', 'title.native', 'synonyms'], 0.4))) || []
   }
   const updateSearch = debounce((value) => {
     container?.scrollTo?.({top: 0})
@@ -219,6 +240,7 @@
   {/if}
   <div bind:this={container} class='notification-list mt-10 overflow-y-auto' on:scroll={handleScroll}>
     {#each currentNotifications as notification, index}
+      {#if isMediaNotification(notification)}
       {#await cache.requestMedia(notification?.id) then media}
         {@const delayed = notification.delayed}
         {@const announcement = notification.click_action === 'VIEW' && !delayed}
@@ -299,6 +321,39 @@
           </div>
         </div>
       {/await}
+      {:else}
+        <div class='notification-item shadow-lg position-relative d-flex align-items-center mx-20 my-5 p-5 scale pointer generic-notification' class:mt-10={index === 0} role='button' tabindex='0' class:not-reactive={!$reactive} class:read={notification.read} class:error={notification.severity === 'error'}
+             use:click={() => {
+               preventScroll(container.scrollTop, () => { notification.read = true; onclick(notification) })
+             }}>
+          <div class='rounded-5 d-flex justify-content-center align-items-center overflow-hidden mr-10 z-10 notification-icon-container generic-icon-container'>
+            <CircleAlert size='2.6rem' strokeWidth='2.5' />
+          </div>
+          <div class='notification-content z-10 w-full'>
+            <div class='d-flex'>
+              <p class='notification-title overflow-hidden font-weight-bold my-0 mt-5 mr-10 font-scale-18 line-clamp-2'>{notification.title}</p>
+              <div class='ml-auto d-flex'>
+                <button type='button' tabindex='-1' class='position-absolute n-safe-area top-0 right-0 h-50 bg-transparent border-0 shadow-none not-reactive z-1 w-50' use:click={() => {}}/>
+                <button type='button' class='read-button btn btn-square d-flex align-items-center justify-content-center z-1' use:click={() => { preventScroll(container.scrollTop, () => { notification.read = !notification.read }) }}>
+                  {#if notification.read}
+                    <MailOpen size='1.7rem' strokeWidth='3'/>
+                  {:else}
+                    <MailCheck size='1.7rem' strokeWidth='3'/>
+                  {/if}
+                </button>
+              </div>
+            </div>
+            <p class='font-size-12 my-0 mr-40'>{notification.message}</p>
+            <div class='d-flex justify-content-between align-items-center mt-5'>
+              <p class='font-size-10 text-muted my-0'>{since(new Date(notification.timestamp * 1000))}</p>
+              <div>
+                <span class='badge text-dark bg-denary mr-5 text-capitalize'>{notification.severity || 'Info'}</span>
+              </div>
+            </div>
+            <div class='position-absolute bd-highlight rounded-5 opacity-transition-hack' style='left: -.5rem' />
+          </div>
+        </div>
+      {/if}
     {/each}
   </div>
   <div class='d-flex flex-column justify-content-between align-items-center'>
@@ -357,6 +412,9 @@
   .notification-item.announcement {
     border-left: .4rem solid var(--duodenary-color);
   }
+  .notification-item.error {
+    border-left: .4rem solid var(--danger-color, #ff6b6b);
+  }
   .notification-item.not-watching {
     border-left: .4rem solid var(--gray-color-very-dim);
   }
@@ -388,6 +446,10 @@
   .notification-icon-container {
     width: 6rem;
     height: 8rem;
+  }
+  .generic-icon-container {
+    background: rgba(255, 107, 107, 0.12);
+    color: var(--danger-color, #ff6b6b);
   }
   .rounded-5 {
     border-radius: .5rem;

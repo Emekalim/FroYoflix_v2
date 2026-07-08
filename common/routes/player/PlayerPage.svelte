@@ -1454,12 +1454,22 @@
     if (castPlaybackActive) {
       castBusy = true;
       try {
+        // Capture where the cast left off so local playback can pick it up.
         snapshotCastHandoffState();
         await endCastSession();
       } catch (e) {
+        // The session may still have ended device-side; the cast state
+        // broadcast will have flipped us out of cast mode either way, so we
+        // surface the error but still fall through to the local restore below.
         toast.error("Cast", { description: e?.message || "Failed to end session" });
       } finally {
         castBusy = false;
+        // Wait for the cast state update to flush (castPlaybackActive -> false)
+        // then drive the revert explicitly instead of relying on the reactive
+        // transition firing. maybeRestore is idempotent (guards on the
+        // snapshot + an in-flight flag), so a duplicate reactive call no-ops.
+        await tick();
+        maybeRestoreLocalPlaybackAfterCastEnd();
       }
       return;
     }
@@ -3084,7 +3094,7 @@
         </div>
       {/if}
       {#if ELECTRON && !SUPPORTS.isAndroid && current}
-        {#if $castState.sessionState === "SESSION_STARTED"}
+        {#if castPlaybackActive}
           <span
             class="icon text-primary ctrl mr-5 d-flex align-items-center"
             title="Stop casting to {$castState.session?.deviceName || 'device'} [D]"
