@@ -19,6 +19,9 @@ import {
   testRuntimeDetection,
   testFlagGating
 } from './runtime.test.mjs'
+import {
+  testTrackerSelection
+} from './registry.test.mjs'
 
 async function runTest(name, fn) {
   try {
@@ -47,6 +50,7 @@ async function main() {
     ['Diversified movie result list', testDiversifiedMovieResults],
     ['Anime relevance dominates flat seeders', testAnimeResultsPreferRelevanceOverFlatSeeders],
     ['Anime results do not diversify across sources', testAnimeResultsDoNotDiversifyAcrossSources],
+    ['Tracker selection', testTrackerSelection],
     ['Runtime detection', testRuntimeDetection],
     ['Flag gating', testFlagGating]
   ]

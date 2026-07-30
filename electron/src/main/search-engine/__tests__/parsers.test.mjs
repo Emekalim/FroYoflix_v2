@@ -45,13 +45,13 @@ export async function testNyaaParsing() {
       <html><body><table><tbody>
         <tr>
           <td><a title="Anime">Anime</a></td>
-          <td colspan="2"><a href="/view/1#comments">Comments</a><a href="/view/1">[SubsPlease] Frieren - 01 (1080p)</a></td>
+          <td><a href="/view/1#comments">Comments</a><a href="/view/1">[SubsPlease] Frieren - 01 (1080p)</a></td>
+          <td class="text-center"><a href="/download/1.torrent">Torrent</a><a href="magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12&dn=test">Magnet</a></td>
           <td>1.4 GiB</td>
           <td data-timestamp="1700000000">2023-11-14 10:00</td>
           <td>25</td>
           <td>3</td>
           <td>710</td>
-          <td class="text-center"><a href="/download/1.torrent">Torrent</a><a href="magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12&dn=test">Magnet</a></td>
         </tr>
       </tbody></table></body></html>
     `,
@@ -111,13 +111,13 @@ export async function testNyaaBatchParsesBatchResults() {
       <html><body><table><tbody>
         <tr>
           <td><a title="Anime">Anime</a></td>
-          <td colspan="2"><a href="/view/2#comments">Comments</a><a href="/view/2">[Group] Frieren Complete Batch (1080p)</a></td>
+          <td><a href="/view/2#comments">Comments</a><a href="/view/2">[Group] Frieren Complete Batch (1080p)</a></td>
+          <td class="text-center"><a href="/download/2.torrent">Torrent</a><a href="magnet:?xt=urn:btih:feedface12345678feedface12345678feedface&dn=test">Magnet</a></td>
           <td>12.2 GiB</td>
           <td data-timestamp="1700000200">2023-11-14 10:00</td>
           <td>19</td>
           <td>4</td>
           <td>700</td>
-          <td class="text-center"><a href="/download/2.torrent">Torrent</a><a href="magnet:?xt=urn:btih:feedface12345678feedface12345678feedface&dn=test">Magnet</a></td>
         </tr>
       </tbody></table></body></html>
     `
@@ -154,23 +154,23 @@ export async function testNyaaSingleSkipsBatchResults() {
       <html><body><table><tbody>
         <tr>
           <td><a title="Anime">Anime</a></td>
-          <td colspan="2"><a href="/view/3#comments">Comments</a><a href="/view/3">[Group] Frieren Complete Batch (1080p)</a></td>
+          <td><a href="/view/3#comments">Comments</a><a href="/view/3">[Group] Frieren Complete Batch (1080p)</a></td>
+          <td class="text-center"><a href="/download/3.torrent">Torrent</a><a href="magnet:?xt=urn:btih:deadbeef12345678deadbeef12345678deadbeef&dn=test">Magnet</a></td>
           <td>9.9 GiB</td>
           <td data-timestamp="1700000300">2023-11-14 10:00</td>
           <td>200</td>
           <td>10</td>
           <td>900</td>
-          <td class="text-center"><a href="/download/3.torrent">Torrent</a><a href="magnet:?xt=urn:btih:deadbeef12345678deadbeef12345678deadbeef&dn=test">Magnet</a></td>
         </tr>
         <tr>
           <td><a title="Anime">Anime</a></td>
-          <td colspan="2"><a href="/view/4#comments">Comments</a><a href="/view/4">[SubsPlease] Frieren - 01 (1080p)</a></td>
+          <td><a href="/view/4#comments">Comments</a><a href="/view/4">[SubsPlease] Frieren - 01 (1080p)</a></td>
+          <td class="text-center"><a href="/download/4.torrent">Torrent</a><a href="magnet:?xt=urn:btih:facefeed12345678facefeed12345678facefeed&dn=test">Magnet</a></td>
           <td>1.3 GiB</td>
           <td data-timestamp="1700000400">2023-11-14 10:00</td>
           <td>80</td>
           <td>5</td>
           <td>800</td>
-          <td class="text-center"><a href="/download/4.torrent">Torrent</a><a href="magnet:?xt=urn:btih:facefeed12345678facefeed12345678facefeed&dn=test">Magnet</a></td>
         </tr>
       </tbody></table></body></html>
     `,
@@ -178,23 +178,23 @@ export async function testNyaaSingleSkipsBatchResults() {
       <html><body><table><tbody>
         <tr>
           <td><a title="Anime">Anime</a></td>
-          <td colspan="2"><a href="/view/3#comments">Comments</a><a href="/view/3">[Group] Frieren Complete Batch (1080p)</a></td>
+          <td><a href="/view/3#comments">Comments</a><a href="/view/3">[Group] Frieren Complete Batch (1080p)</a></td>
+          <td class="text-center"><a href="/download/3.torrent">Torrent</a><a href="magnet:?xt=urn:btih:deadbeef12345678deadbeef12345678deadbeef&dn=test">Magnet</a></td>
           <td>9.9 GiB</td>
           <td data-timestamp="1700000300">2023-11-14 10:00</td>
           <td>200</td>
           <td>10</td>
           <td>900</td>
-          <td class="text-center"><a href="/download/3.torrent">Torrent</a><a href="magnet:?xt=urn:btih:deadbeef12345678deadbeef12345678deadbeef&dn=test">Magnet</a></td>
         </tr>
         <tr>
           <td><a title="Anime">Anime</a></td>
-          <td colspan="2"><a href="/view/4#comments">Comments</a><a href="/view/4">[SubsPlease] Frieren - 01 (1080p)</a></td>
+          <td><a href="/view/4#comments">Comments</a><a href="/view/4">[SubsPlease] Frieren - 01 (1080p)</a></td>
+          <td class="text-center"><a href="/download/4.torrent">Torrent</a><a href="magnet:?xt=urn:btih:facefeed12345678facefeed12345678facefeed&dn=test">Magnet</a></td>
           <td>1.3 GiB</td>
           <td data-timestamp="1700000400">2023-11-14 10:00</td>
           <td>80</td>
           <td>5</td>
           <td>800</td>
-          <td class="text-center"><a href="/download/4.torrent">Torrent</a><a href="magnet:?xt=urn:btih:facefeed12345678facefeed12345678facefeed&dn=test">Magnet</a></td>
         </tr>
       </tbody></table></body></html>
     `
@@ -214,7 +214,7 @@ export async function testNyaaSingleSkipsBatchResults() {
 
 export async function test1337xParsing() {
   mockFetchOnce({
-    'https://1337xx.to/category-search/Dune%202021%201080p/Movies/1/': `
+    'https://www.1337xx.to/category-search/Dune%202021%201080p/Movies/1/': `
       <html><body><table><tbody>
         <tr>
           <td class="name"><a href="/cat/movies">Movies</a><a href="/torrent/999/black-panther">Black Panther 2021 1080p BluRay</a></td>
@@ -230,7 +230,7 @@ export async function test1337xParsing() {
         </tr>
       </tbody></table></body></html>
     `,
-    'https://1337xx.to/torrent/123/dune': `
+    'https://www.1337xx.to/torrent/123/dune': `
       <html><body>
         <div class="clearfix">
           <ul>
@@ -263,6 +263,60 @@ export async function test1337xParsing() {
   assert.strictEqual(results[0].title, 'Dune 2021 1080p BluRay')
   assert.strictEqual(results[0].hash, '1234abcd5678ef901234abcd5678ef901234abcd')
   assert.strictEqual(results[0].seeders, 90)
+  return true
+}
+
+export async function test1337xTvSingleRejectsWrongEpisodeRows() {
+  mockFetchOnce({
+    'https://www.1337xx.to/category-search/Rick%20and%20Morty%20S01E03/TV/1/': `
+      <html><body><table><tbody>
+        <tr>
+          <td class="name"><a href="/cat/tv">TV</a><a href="/torrent/999/rick-s09e07">Rick.and.Morty.S09E07.1080p.WEBRip.x265</a></td>
+          <td>1</td><td>2</td><td>3</td><td>4</td>
+          <td>4256</td>
+          <td>100</td>
+        </tr>
+        <tr>
+          <td class="name"><a href="/cat/tv">TV</a><a href="/torrent/123/rick-s01e03">Rick.and.Morty.S01E03.Anatomy.Park.1080p.WEB-DL</a></td>
+          <td>1</td><td>2</td><td>3</td><td>4</td>
+          <td>25</td>
+          <td>3</td>
+        </tr>
+      </tbody></table></body></html>
+    `,
+    'https://www.1337xx.to/torrent/123/rick-s01e03': `
+      <html><body>
+        <div class="clearfix">
+          <ul>
+            <li><a href="magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12&dn=rick">Magnet</a></li>
+            <li><span>TV</span></li>
+            <li><span>HD</span></li>
+            <li><span>English</span></li>
+            <li><span>1.0 GB</span></li>
+            <li><span>Uploader</span></li>
+            <li><span>10</span></li>
+            <li><span>Yesterday</span></li>
+            <li><span>2024-01-01</span></li>
+            <li><span>25</span></li>
+            <li><span>3</span></li>
+          </ul>
+        </div>
+      </body></html>
+    `
+  })
+
+  const results = await x1337Adapter.searchSingle({
+    titles: ['Rick and Morty'],
+    mediaType: 'tv',
+    season: 1,
+    episode: 3,
+    resolution: '1080',
+    variants: { single: ['Rick and Morty S01E03'] }
+  })
+
+  assert.strictEqual(results.length, 1)
+  assert.strictEqual(results[0].title, 'Rick.and.Morty.S01E03.Anatomy.Park.1080p.WEB-DL')
+  assert.strictEqual(results[0].hash, 'abcdef1234567890abcdef1234567890abcdef12')
   return true
 }
 

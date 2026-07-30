@@ -9,6 +9,11 @@ const TRACKERS = {
     name: 'YTS',
     mediaTypes: ['movie']
   },
+  x1337: {
+    id: '1337x',
+    name: '1337x',
+    mediaTypes: ['tv', 'movie']
+  },
   showrss: {
     id: 'showrss',
     name: 'showRSS',
@@ -23,9 +28,9 @@ const TRACKERS = {
 
 export function getBuiltInTrackersForMediaType(mediaType) {
   if (mediaType === 'anime') return [TRACKERS.nyaa]
-  if (mediaType === 'animeMovie') return [TRACKERS.nyaa, TRACKERS.yts, TRACKERS.torrentdownloads]
-  if (mediaType === 'tv') return [TRACKERS.showrss, TRACKERS.torrentdownloads]
-  if (mediaType === 'movie') return [TRACKERS.yts, TRACKERS.torrentdownloads]
+  if (mediaType === 'animeMovie') return [TRACKERS.nyaa, TRACKERS.yts]
+  if (mediaType === 'tv') return [TRACKERS.showrss, TRACKERS.x1337]
+  if (mediaType === 'movie') return [TRACKERS.yts, TRACKERS.x1337]
   return []
 }
 

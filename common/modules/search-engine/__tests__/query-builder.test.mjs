@@ -93,7 +93,8 @@ export async function testAnimeEpisodeVariantExpansion() {
 
   assert.strictEqual(query.mediaType, 'anime')
   assert.strictEqual(query.variantPlan.single[0].stageMode, 'single')
-  assert.strictEqual(query.variantPlan.single[0].terms[0], 'Frieren 01')
+  assert.strictEqual(query.variantPlan.single[0].terms[0], 'Frieren 001')
+  assert(query.variants.single.some(value => value.includes('Frieren 001')))
   assert(query.variants.single.some(value => value.includes('Frieren 01')))
   assert(query.variants.single.some(value => value.includes('Frieren 1')))
   return true

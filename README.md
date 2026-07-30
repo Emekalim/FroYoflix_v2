@@ -1,4 +1,4 @@
-<p align="center">
+c<p align="center">
   <a href="https://github.com/Emekalim/FroYoflix_v2">
     <img src=".github/docs/assets/logo_filled.svg" width="380" alt="FroYo">
   </a>

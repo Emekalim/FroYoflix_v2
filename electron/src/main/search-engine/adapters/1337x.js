@@ -1,6 +1,6 @@
 import { fetchHtml, parseHtml, parseHumanSize, parseLooseDate, parseInteger, magnetHash } from '../utils.js'
 
-const BASE_URL = 'https://1337xx.to'
+const BASE_URL = 'https://www.1337xx.to'
 
 function text(node) {
   return node?.text?.trim?.() || ''
@@ -34,9 +34,27 @@ function getNormalizedTitles(query) {
     .sort((a, b) => b.length - a.length))]
 }
 
+function matchesRequestedTvEpisode(title, query) {
+  const season = Number.isFinite(Number(query?.season)) ? Number(query.season) : null
+  const episode = Number.isFinite(Number(query?.episode)) ? Number(query.episode) : null
+  if (season == null || episode == null) return true
+
+  const paddedSeason = String(season).padStart(2, '0')
+  const paddedEpisode = String(episode).padStart(2, '0')
+  const patterns = [
+    new RegExp(`(^| )s${escapeRegex(paddedSeason)}e${escapeRegex(paddedEpisode)}( |$)`, 'i'),
+    new RegExp(`(^| )${escapeRegex(String(season))}x${escapeRegex(paddedEpisode)}( |$)`, 'i'),
+    new RegExp(`(^| )season ${escapeRegex(String(season))} episode ${escapeRegex(String(episode))}( |$)`, 'i')
+  ]
+
+  return patterns.some(pattern => pattern.test(title))
+}
+
 function getRowScore(row, query, mode) {
   const title = normalizeTitle(row?.title)
   if (!title) return 0
+
+  if (query?.mediaType === 'tv' && mode === 'single' && !matchesRequestedTvEpisode(title, query)) return 0
 
   const normalizedTitles = getNormalizedTitles(query)
   let titleScore = 0
